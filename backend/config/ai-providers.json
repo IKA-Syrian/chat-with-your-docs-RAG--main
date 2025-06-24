@@ -1,0 +1,89 @@
+{
+    "defaultProvider": "gemini",
+    "providers": {
+        "gemini": {
+            "name": "Google Gemini",
+            "enabled": true,
+            "apiKey": "AIzaSyB_k0vZ8og9wbowt_6eqk_DQv3-zv605z0",
+            "models": {
+                "chat": {
+                    "primary": "gemini-2.0-flash",
+                    "alternatives": ["gemini-1.5-flash", "gemini-pro"]
+                },
+                "embedding": {
+                    "primary": "models/embedding-001",
+                    "alternatives": ["models/text-embedding-004"]
+                }
+            },
+            "endpoints": {
+                "chat": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                "embedding": "https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent"
+            }
+        },
+        "openrouter": {
+            "name": "OpenRouter",
+            "enabled": true,
+            "apiKey": "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",
+            "models": {
+                "chat": {
+                    "primary": "deepseek/deepseek-r1-0528:free",
+                    "alternatives": [
+                        "tngtech/deepseek-r1t-chimera:free",
+                        "deepseek/deepseek-v3-base:free",
+                        "cognitivecomputations/dolphin3.0-mistral-24b:free",
+                        "deepseek/deepseek-r1-distill-llama-70b:free",
+                        "deepseek/deepseek-chat",
+                        "google/gemma-7b-it"
+                    ]
+                },
+                "embedding": {
+                    "primary": "openai/text-embedding-ada-002",
+                    "alternatives": []
+                }
+            },
+            "endpoints": {
+                "chat": "https://openrouter.ai/api/v1/chat/completions",
+                "embedding": "https://openrouter.ai/api/v1/embeddings"
+            }
+        },
+        "openai": {
+            "name": "OpenAI",
+            "enabled": false,
+            "apiKey": "${OPENAI_API_KEY}",
+            "models": {
+                "chat": {
+                    "primary": "gpt-3.5-turbo",
+                    "alternatives": ["gpt-4", "gpt-4-turbo-preview"]
+                },
+                "embedding": {
+                    "primary": "text-embedding-ada-002",
+                    "alternatives": [
+                        "text-embedding-3-small",
+                        "text-embedding-3-large"
+                    ]
+                }
+            },
+            "endpoints": {
+                "chat": "https://api.openai.com/v1/chat/completions",
+                "embedding": "https://api.openai.com/v1/embeddings"
+            }
+        },
+        "claude": {
+            "name": "Anthropic Claude",
+            "enabled": false,
+            "apiKey": "${ANTHROPIC_API_KEY}",
+            "models": {
+                "chat": {
+                    "primary": "claude-3-sonnet-20240229",
+                    "alternatives": [
+                        "claude-3-opus-20240229",
+                        "claude-3-haiku-20240307"
+                    ]
+                }
+            },
+            "endpoints": {
+                "chat": "https://api.anthropic.com/v1/messages"
+            }
+        }
+    }
+}
