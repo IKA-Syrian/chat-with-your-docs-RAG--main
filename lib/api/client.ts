@@ -497,6 +497,80 @@ class ApiClient {
     }>(`/chat/conversations?document_id=${documentId}`);
   }
 
+  // Analytics methods
+  async getAnalytics() {
+    return this.request<{
+      overall_analytics: {
+        total_study_time: number;
+        current_streak: number;
+        longest_streak: number;
+        total_flashcards_seen: number;
+        total_flashcards_mastered: number;
+        flashcard_accuracy_overall: number;
+        total_quizzes_completed: number;
+        average_quiz_score_overall: number;
+        study_sessions_this_week_count: number;
+      };
+      study_sessions_chart_data: Array<{
+        date: string;
+        duration: number;
+        sessions: number;
+      }>;
+      flashcard_performance_chart_data: Array<{
+        document_title: string;
+        accuracy: number;
+        attempts: number;
+      }>;
+      quiz_performance_chart_data: Array<{
+        date: string;
+        score: number;
+        quiz_title: string;
+      }>;
+    }>('/analytics/pagedata');
+  }
+
+  // Enhanced processing methods for educational content
+  async generateEducationalContent(documentId: string, provider?: string, model?: string) {
+    const body: any = { document_id: documentId };
+    
+    if (provider) {
+      body.provider = provider;
+    }
+    
+    if (model) {
+      body.model = model;
+    }
+    
+    return this.request<{
+      message?: string;
+      summary?: any;
+      flashcards?: any[];
+      quiz?: any;
+      generated_at?: string;
+    }>('/enhanced-processing/generate', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  // Get document details
+  async getDocumentDetail(documentId: string) {
+    // Use the enhanced processing endpoint that returns educational content
+    return this.request<{
+      document: {
+        id: string;
+        name: string;
+        created_at: string;
+        summary?: any;
+        flashcards?: any[];
+        quiz?: any;
+        educational_content_generated?: string;
+      };
+    }>(`/enhanced-processing/documents/${documentId}`, {
+      method: 'GET',
+    });
+  }
+
   // Health check
   async healthCheck() {
     return this.request<{
@@ -505,6 +579,138 @@ class ApiClient {
       uptime: number;
     }>('/health', {
       method: 'GET',
+    });
+  }
+
+  // Get quiz questions without correct answers (secure)
+  async getQuizQuestions(documentId: string): Promise<any> {
+    return this.request<any>(`/enhanced-processing/quiz/${documentId}`, {
+      method: 'GET',
+    });
+  }
+
+  // Submit quiz answers and get results
+  async submitQuizAnswers(documentId: string, answers: Array<{questionId: number, selectedOption: number}>, startTime?: string, endTime?: string): Promise<any> {
+    return this.request<any>(`/enhanced-processing/quiz/${documentId}/submit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        answers,
+        start_time: startTime,
+        end_time: endTime
+      }),
+    });
+  }
+
+  // Session tracking methods
+  async startStudySession(data: {
+    activity_type: string;
+    document_id?: string;
+    started_at: string;
+  }): Promise<any> {
+    const requestBody: any = {
+      session_type: data.activity_type,
+    };
+
+    // Only include document_id and document_title if document_id is provided
+    if (data.document_id) {
+      requestBody.document_id = data.document_id;
+      requestBody.document_title = `Document ${data.document_id}`;
+    }
+
+    return this.request('/analytics/session/start', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
+    });
+  }
+
+  async endStudySession(data: {
+    session_id: string;
+    ended_at: string;
+    duration_seconds: number;
+    end_reason?: string;
+  }): Promise<any> {
+    return this.request(`/analytics/session/${data.session_id}/end`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  async trackFlashcardAttempt(data: {
+    document_id?: string;
+    correct: boolean;
+    flashcard_id?: string;
+    attempt_time: string;
+  }): Promise<any> {
+    const requestBody: any = {
+      question: data.flashcard_id || 'Flashcard',
+      answer: data.correct ? 'correct' : 'incorrect',
+      correct: data.correct,
+      response_time: 0,
+    };
+
+    // Only include document_id if provided
+    if (data.document_id) {
+      requestBody.document_id = data.document_id;
+    }
+
+    return this.request('/analytics/flashcard/attempt', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
+    });
+  }
+
+  async trackQuizAttempt(data: {
+    document_id?: string;
+    question_id: string;
+    correct: boolean;
+    time_spent_seconds?: number;
+    attempt_time: string;
+  }): Promise<any> {
+    const requestBody: any = {
+      question: `Question ${data.question_id}`,
+      answer: data.correct ? 'correct' : 'incorrect',
+      correct: data.correct,
+      response_time: data.time_spent_seconds || 0,
+    };
+
+    // Only include document_id if provided
+    if (data.document_id) {
+      requestBody.document_id = data.document_id;
+    }
+
+    return this.request('/analytics/quiz/attempt', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
+    });
+  }
+
+  async trackQuizCompletion(data: {
+    document_id?: string;
+    score_percentage: number;
+    total_questions: number;
+    time_spent_seconds: number;
+    completed_at: string;
+  }): Promise<any> {
+    const requestBody: any = {
+      score: data.score_percentage,
+      total_questions: data.total_questions,
+      correct_answers: Math.round((data.score_percentage / 100) * data.total_questions),
+      time_taken: data.time_spent_seconds,
+      started_at: new Date(Date.now() - data.time_spent_seconds * 1000).toISOString(),
+    };
+
+    // Only include document info if document_id is provided
+    if (data.document_id) {
+      requestBody.document_id = data.document_id;
+      requestBody.document_title = `Document ${data.document_id}`;
+    }
+
+    return this.request('/analytics/quiz/completion', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
     });
   }
 }

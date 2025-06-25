@@ -201,8 +201,14 @@ class AIProvider {
             const userMessages = messages.filter(m => m.role === 'user');
             const lastUserMessage = userMessages[userMessages.length - 1];
 
-            // Check for common knowledge questions that we can handle with fallbacks
-            if (lastUserMessage) {
+            // Check if this is educational content generation mode
+            const isEducationalContentMode = systemMessage &&
+                systemMessage.content.includes('EDUCATIONAL_CONTENT_GENERATION_MODE');
+
+            console.log('🎓 Educational content generation mode:', isEducationalContentMode);
+
+            // Only use fallbacks if NOT in educational content generation mode
+            if (!isEducationalContentMode && lastUserMessage) {
                 const lowerMessage = lastUserMessage.content.toLowerCase();
 
                 // SWOT analysis fallback
@@ -404,28 +410,39 @@ When providing information not in the document, clearly indicate it with phrases
         } catch (error) {
             console.error('Gemini chat error:', error);
 
-            // Check if this is a question we can handle with a fallback
-            const lastUserMessage = messages.find(m => m.role === 'user')?.content;
-            if (lastUserMessage) {
-                const lowerMessage = lastUserMessage.toLowerCase();
+            // Check if this is educational content generation mode
+            const systemMessage = messages.find(m => m.role === 'system');
+            const isEducationalContentMode = systemMessage &&
+                systemMessage.content.includes('EDUCATIONAL_CONTENT_GENERATION_MODE');
 
-                // SWOT analysis fallback
-                if (lowerMessage.includes('swot') &&
-                    (lowerMessage.includes('what is') ||
-                        lowerMessage.includes('explain') ||
-                        lowerMessage.includes('stand for') ||
-                        lowerMessage.includes('analysis'))) {
+            // Only use fallbacks if NOT in educational content generation mode
+            if (!isEducationalContentMode) {
+                // Check if this is a question we can handle with a fallback
+                const lastUserMessage = messages.find(m => m.role === 'user')?.content;
+                if (lastUserMessage) {
+                    const lowerMessage = lastUserMessage.toLowerCase();
 
-                    console.log('🤖 Using fallback response for SWOT analysis after error');
-                    return {
-                        content: "SWOT stands for Strengths, Weaknesses, Opportunities, and Threats. It's a strategic planning framework used to evaluate these four elements of a business, project, or situation. Strengths and weaknesses are typically internal factors, while opportunities and threats are external factors. This analysis helps organizations identify favorable and unfavorable factors that may impact their objectives.",
-                        model: options.model || this.config.models.chat.primary,
-                        provider: 'gemini-fallback'
-                    };
+                    // SWOT analysis fallback
+                    if (lowerMessage.includes('swot') &&
+                        (lowerMessage.includes('what is') ||
+                            lowerMessage.includes('explain') ||
+                            lowerMessage.includes('stand for') ||
+                            lowerMessage.includes('analysis'))) {
+
+                        console.log('🤖 Using fallback response for SWOT analysis after error');
+                        return {
+                            content: "SWOT stands for Strengths, Weaknesses, Opportunities, and Threats. It's a strategic planning framework used to evaluate these four elements of a business, project, or situation. Strengths and weaknesses are typically internal factors, while opportunities and threats are external factors. This analysis helps organizations identify favorable and unfavorable factors that may impact their objectives.",
+                            model: options.model || this.config.models.chat.primary,
+                            provider: 'gemini-fallback'
+                        };
+                    }
                 }
+
+                // If no fallback available, throw the error
+                throw new Error(`Gemini API error: ${error.message}`);
             }
 
-            // If no fallback available, throw the error
+            // If no fallback available, throw the error  
             throw new Error(`Gemini API error: ${error.message}`);
         }
     }

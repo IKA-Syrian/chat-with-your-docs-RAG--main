@@ -152,7 +152,7 @@ app.use('/api/test', testRoutes);
 
 // Enhanced API routes
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/enhanced', enhancedProcessingRoutes);
+app.use('/api/enhanced-processing', enhancedProcessingRoutes);
 
 // Health check also available under API path
 app.get('/api/health', (req, res) => {

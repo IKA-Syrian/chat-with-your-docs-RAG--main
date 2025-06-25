@@ -8,7 +8,11 @@
             "models": {
                 "chat": {
                     "primary": "gemini-2.0-flash",
-                    "alternatives": ["gemini-1.5-flash", "gemini-pro"]
+                    "alternatives": [
+                        "gemini-2.5-pro",
+                        "gemini-2.5-pro-1p-freebie",
+                        "gemini-pro"
+                    ]
                 },
                 "embedding": {
                     "primary": "models/embedding-001",

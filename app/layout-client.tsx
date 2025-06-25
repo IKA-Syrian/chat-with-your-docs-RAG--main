@@ -4,12 +4,6 @@ import Link from 'next/link';
 import { PropsWithChildren } from 'react';
 import { useAuth } from '@/lib/api/auth';
 import LogoutButton from '@/components/LogoutButton';
-import AuthStorageMonitor from '@/components/AuthStorageMonitor';
-
-// Enable localStorage debugging in development
-if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
-  import('@/lib/debug/localStorage');
-}
 
 export default function LayoutClient({ children }: PropsWithChildren) {
   const { user } = useAuth();
@@ -41,6 +35,12 @@ export default function LayoutClient({ children }: PropsWithChildren) {
                 className="py-3 px-3 cursor-pointer hover:bg-slate-700 font-medium text-sm"
               >
                 New Chat
+              </Link>
+              <Link
+                href="/analytics"
+                className="py-3 px-3 cursor-pointer hover:bg-slate-700 font-medium text-sm"
+              >
+                Analytics
               </Link>
             </div>
             

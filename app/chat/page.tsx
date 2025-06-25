@@ -23,11 +23,3 @@ export default function ChatPage() {
   // Directly render the ChatPageNew component (it already includes LayoutClient)
   return <ChatPageNew />;
 }
-
-  // Directly render the ChatPageNew component instead of redirecting
-  return (
-    <LayoutClient>
-      <ChatPageNew />
-    </LayoutClient>
-  );
-}

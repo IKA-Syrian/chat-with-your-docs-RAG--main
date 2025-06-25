@@ -40,11 +40,23 @@ try {
 // Optional PDF and PPTX parsers
 let pdfParse = null;
 try {
-    // Use createRequire to import CommonJS module
-    pdfParse = require('pdf-parse');
-    console.log('✅ pdf-parse loaded');
-} catch (error) {
-    console.log('⚠️ pdf-parse not installed – PDF support disabled:', error.message);
+    // Try dynamic import first (for ES modules)
+    const pdfParseModule = await import('pdf-parse');
+    pdfParse = pdfParseModule.default || pdfParseModule;
+    console.log('✅ pdf-parse loaded via dynamic import');
+} catch (dynamicImportError) {
+    try {
+        // Fallback to createRequire for CommonJS modules
+        const require = createRequire(import.meta.url);
+        pdfParse = require('pdf-parse');
+        console.log('✅ pdf-parse loaded via createRequire');
+    } catch (requireError) {
+        console.log('⚠️ pdf-parse not available:', {
+            dynamicImport: dynamicImportError.message,
+            require: requireError.message
+        });
+        console.log('📄 PDF processing will be disabled');
+    }
 }
 
 let pptxParser = null;
@@ -561,7 +573,8 @@ router.post('/', async (req, res) => {
             try {
                 const tmpPath = path.join(os.tmpdir(), `${Date.now()}.pptx`);
                 fs.writeFileSync(tmpPath, fileContent);
-                const slides = await pptxParser(tmpPath);
+                const parser = new pptxParser();
+                const slides = await parser.parse(tmpPath);
                 text = slides.map(s => s.text).join('\n\n');
                 fs.unlinkSync(tmpPath);
                 console.log('✅ PPTX parsed, length:', text.length);

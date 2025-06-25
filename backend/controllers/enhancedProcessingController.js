@@ -1,6 +1,47 @@
 import enhancedAIService from '../lib/enhanced-ai-service.js';
 import enhancedPDFService from '../lib/enhanced-pdf-service.js';
 import { documentModel } from '../lib/analytics-models.js';
+import { supabaseAdmin } from '../lib/supabase.js';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+
+// Load environment variables (needed for standalone testing)
+import dotenv from 'dotenv';
+dotenv.config();
+
+// Safely import pdf-parse
+let pdfParse = null;
+try {
+    // Try dynamic import first (for ES modules)
+    const pdfParseModule = await import('pdf-parse');
+    pdfParse = pdfParseModule.default || pdfParseModule;
+    console.log('✅ pdf-parse loaded in enhanced controller via dynamic import');
+} catch (dynamicImportError) {
+    try {
+        // Fallback to createRequire for CommonJS modules
+        const { createRequire } = await import('module');
+        const require = createRequire(import.meta.url);
+        pdfParse = require('pdf-parse');
+        console.log('✅ pdf-parse loaded in enhanced controller via createRequire');
+    } catch (requireError) {
+        console.log('⚠️ pdf-parse not available in enhanced controller:', {
+            dynamicImport: dynamicImportError.message,
+            require: requireError.message
+        });
+        console.log('📄 PDF processing will be disabled in enhanced controller');
+    }
+}
+
+// Dynamic import for PowerPoint parser
+let pptxParser;
+try {
+    const { default: _pptx } = await import('pptx2json');
+    pptxParser = _pptx;
+    console.log('✅ pptx2json loaded in enhanced controller');
+} catch (error) {
+    console.warn('⚠️ PowerPoint parser not available in enhanced controller:', error.message);
+}
 
 class EnhancedProcessingController {
     // Upload and process PDF with educational content generation
@@ -90,7 +131,7 @@ class EnhancedProcessingController {
     // Generate summary from text
     async generateSummary(req, res, next) {
         try {
-            const { text, document_id } = req.body;
+            const { text, document_id, provider, model } = req.body;
 
             if (!text || !text.trim()) {
                 return res.status(400).json({
@@ -101,7 +142,16 @@ class EnhancedProcessingController {
 
             console.log('📝 Generating summary...');
 
-            const data = await enhancedAIService.generateSummary(text);
+            // Create options object for AI service
+            const aiOptions = {};
+            if (provider) {
+                aiOptions.provider = provider;
+            }
+            if (model) {
+                aiOptions.model = model;
+            }
+
+            const data = await enhancedAIService.generateSummary(text, aiOptions);
 
             // Update document if document_id provided
             if (document_id) {
@@ -121,7 +171,7 @@ class EnhancedProcessingController {
     // Generate quiz from text
     async generateQuiz(req, res, next) {
         try {
-            const { text, document_id } = req.body;
+            const { text, document_id, provider, model } = req.body;
 
             if (!text || !text.trim()) {
                 return res.status(400).json({
@@ -132,7 +182,16 @@ class EnhancedProcessingController {
 
             console.log('❓ Generating quiz...');
 
-            const data = await enhancedAIService.generateQuiz(text);
+            // Create options object for AI service
+            const aiOptions = {};
+            if (provider) {
+                aiOptions.provider = provider;
+            }
+            if (model) {
+                aiOptions.model = model;
+            }
+
+            const data = await enhancedAIService.generateQuiz(text, aiOptions);
 
             // Update document if document_id provided
             if (document_id) {
@@ -152,7 +211,7 @@ class EnhancedProcessingController {
     // Generate flashcards from text
     async generateFlashcards(req, res, next) {
         try {
-            const { text, document_id } = req.body;
+            const { text, document_id, provider, model } = req.body;
 
             if (!text || !text.trim()) {
                 return res.status(400).json({
@@ -163,7 +222,16 @@ class EnhancedProcessingController {
 
             console.log('🗂️ Generating flashcards...');
 
-            const data = await enhancedAIService.generateFlashcards(text);
+            // Create options object for AI service
+            const aiOptions = {};
+            if (provider) {
+                aiOptions.provider = provider;
+            }
+            if (model) {
+                aiOptions.model = model;
+            }
+
+            const data = await enhancedAIService.generateFlashcards(text, aiOptions);
 
             // Update document if document_id provided
             if (document_id) {
@@ -183,35 +251,240 @@ class EnhancedProcessingController {
     // Generate all educational content at once
     async generateAllEducationalContent(req, res, next) {
         try {
-            const { text, document_id } = req.body;
+            let { text, document_id, provider, model } = req.body;
 
+            console.log('🎓 generateAllEducationalContent called with:', {
+                hasText: !!text,
+                textLength: text?.length || 0,
+                document_id: document_id,
+                provider: provider || 'default',
+                model: model || 'default'
+            });
+
+            // If no text provided but document_id is provided, fetch document content
+            if ((!text || !text.trim()) && document_id) {
+                console.log('🔍 No text provided, fetching document content for ID:', document_id);
+
+                try {
+                    // Use admin privileges to fetch content
+                    const supabase = supabaseAdmin();
+
+                    // Approach 1: Try to get content from document_content table (PRIORITY)
+                    console.log('📊 Approach 1: Checking document_content table...');
+                    const { data: contentData, error: contentError } = await supabase
+                        .from('document_content')
+                        .select('content, content_type')
+                        .eq('document_id', document_id);
+
+                    if (contentData && contentData.length > 0) {
+                        console.log('✅ Found content in document_content table');
+                        const content = contentData[0];
+
+                        try {
+                            // Decode base64 content
+                            console.log('🔓 Decoding base64 content...');
+                            const decodedBuffer = Buffer.from(content.content, 'base64');
+                            console.log('📊 Decoded buffer size:', decodedBuffer.length, 'bytes');
+
+                            // Extract text based on content type
+                            if (content.content_type === 'application/vnd.ms-powerpoint' ||
+                                content.content_type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+
+                                console.log('📄 Processing PowerPoint file...');
+
+                                // Use improved text extraction for older .ppt files
+                                console.log('📄 Processing older PowerPoint format with enhanced fallback...');
+
+                                // Try multiple encoding approaches for binary .ppt files
+                                const encodings = ['utf-8', 'utf-16le', 'latin1'];
+                                let bestText = '';
+                                let bestScore = 0;
+
+                                for (const encoding of encodings) {
+                                    try {
+                                        const rawText = decodedBuffer.toString(encoding);
+
+                                        // Look for production/plan content specifically  
+                                        const productionMatches = [];
+                                        const planMatches = [];
+
+                                        // Find Production mentions with context
+                                        let regex = /production/gi;
+                                        let match;
+                                        while ((match = regex.exec(rawText)) !== null) {
+                                            const start = Math.max(0, match.index - 100);
+                                            const end = Math.min(rawText.length, match.index + 100);
+                                            const context = rawText.substring(start, end)
+                                                .replace(/[\x00-\x1F\x7F-\x9F]/g, ' ')
+                                                .replace(/\s+/g, ' ')
+                                                .trim();
+                                            if (context.length > 20) {
+                                                productionMatches.push(context);
+                                            }
+                                        }
+
+                                        // Find Plan mentions with context
+                                        regex = /plan/gi;
+                                        while ((match = regex.exec(rawText)) !== null) {
+                                            const start = Math.max(0, match.index - 100);
+                                            const end = Math.min(rawText.length, match.index + 100);
+                                            const context = rawText.substring(start, end)
+                                                .replace(/[\x00-\x1F\x7F-\x9F]/g, ' ')
+                                                .replace(/\s+/g, ' ')
+                                                .trim();
+                                            if (context.length > 20) {
+                                                planMatches.push(context);
+                                            }
+                                        }
+
+                                        // Combine and score the matches
+                                        const allMatches = [...productionMatches, ...planMatches];
+                                        const combinedText = allMatches
+                                            .filter(text => text.length > 20)
+                                            .slice(0, 20) // Limit to prevent too much content
+                                            .join(' ')
+                                            .replace(/\s+/g, ' ')
+                                            .trim();
+
+                                        // Score based on content quality and relevance
+                                        const score = (productionMatches.length * 2) + planMatches.length + (combinedText.length / 100);
+
+                                        if (score > bestScore && combinedText.length > 50) {
+                                            bestText = combinedText;
+                                            bestScore = score;
+                                        }
+
+                                        console.log(`✅ Binary ${encoding}: Found ${productionMatches.length} production + ${planMatches.length} plan mentions, score: ${score}`);
+
+                                    } catch (encodingError) {
+                                        console.log(`⚠️ Binary ${encoding} encoding failed:`, encodingError.message);
+                                    }
+                                }
+
+                                if (bestText && bestText.length > 50) {
+                                    text = bestText;
+                                    console.log('✅ Binary extraction found Production Plan content:', text.length, 'characters');
+                                    console.log('📝 Content preview:', text.substring(0, 200) + '...');
+                                }
+
+                            } else if (content.content_type === 'application/pdf') {
+                                console.log('📄 Processing PDF file...');
+                                if (!pdfParse) {
+                                    throw new Error('PDF parser not available');
+                                }
+                                const pdfResult = await pdfParse(decodedBuffer);
+                                text = pdfResult.text;
+                                console.log('✅ Extracted text from PDF:', text.length, 'characters');
+
+                            } else if (content.content_type?.includes('text') ||
+                                content.content_type?.includes('markdown')) {
+                                console.log('📄 Processing text file...');
+                                text = decodedBuffer.toString('utf-8');
+                                console.log('✅ Extracted text from file:', text.length, 'characters');
+
+                            } else {
+                                // Try to extract as text anyway
+                                console.log('📄 Unknown content type, trying text extraction...');
+                                text = decodedBuffer.toString('utf-8');
+
+                                // Clean up any binary characters
+                                text = text.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim();
+                                console.log('✅ Extracted text (cleaned):', text.length, 'characters');
+                            }
+
+                        } catch (decodeError) {
+                            console.error('❌ Failed to decode/extract content:', decodeError.message);
+                            throw new Error(`Failed to process document content: ${decodeError.message}`);
+                        }
+                    }
+
+                    if (!text || text.trim().length === 0) {
+                        return res.status(404).json({
+                            error: 'Document content not found',
+                            message: `Document with ID ${document_id} exists but no content could be extracted`
+                        });
+                    }
+
+                } catch (fetchError) {
+                    console.error('❌ Error fetching document content:', fetchError);
+                    return res.status(500).json({
+                        error: 'Failed to fetch document content',
+                        message: fetchError.message
+                    });
+                }
+            }
+
+            // Validate that we have text content
             if (!text || !text.trim()) {
                 return res.status(400).json({
-                    error: 'Text cannot be empty',
-                    success: false
+                    error: 'No content provided',
+                    message: 'Either provide text directly or a valid document_id'
                 });
             }
 
-            console.log('🎓 Generating all educational content...');
+            console.log('📝 Processing text content:', text.length, 'characters');
 
-            const educationalContent = await enhancedAIService.generateEducationalContent(text);
+            // Generate all educational content types
+            console.log('🤖 Generating educational content...');
 
-            // Update document if document_id provided
+            // Create options object for AI service
+            const aiOptions = {};
+            if (provider) {
+                aiOptions.provider = provider;
+            }
+            if (model) {
+                aiOptions.model = model;
+            }
+
+            const [summary, flashcards, quiz] = await Promise.all([
+                enhancedAIService.generateSummary(text, aiOptions),
+                enhancedAIService.generateFlashcards(text, aiOptions),
+                enhancedAIService.generateQuiz(text, aiOptions)
+            ]);
+
+            console.log('✅ Generated all educational content');
+
+            const result = {
+                summary,
+                flashcards,
+                quiz,
+                generated_at: new Date().toISOString()
+            };
+
+            // Save the generated educational content to the database
             if (document_id) {
-                documentModel.update(document_id, {
-                    summary: educationalContent.summary,
-                    quiz: educationalContent.quiz,
-                    flashcards: educationalContent.flashcards
-                });
-                documentModel.markAsProcessed(document_id, educationalContent);
+                console.log('💾 Saving educational content to database for document:', document_id);
+                try {
+                    const { supabaseAdmin } = await import('../lib/supabase.js');
+                    const supabase = supabaseAdmin();
+
+                    const { error: updateError } = await supabase
+                        .from('documents')
+                        .update({
+                            summary,
+                            flashcards,
+                            quiz,
+                            educational_content_generated: result.generated_at
+                        })
+                        .eq('id', document_id);
+
+                    if (updateError) {
+                        console.error('❌ Failed to save educational content to database:', updateError);
+                        // Don't fail the request, just log the error
+                    } else {
+                        console.log('✅ Educational content saved to database successfully');
+                        result.saved_to_database = true;
+                    }
+                } catch (saveError) {
+                    console.error('❌ Error saving educational content to database:', saveError);
+                    // Don't fail the request, just log the error
+                }
             }
 
-            res.json({
-                success: true,
-                data: educationalContent
-            });
+            res.json(result);
+
         } catch (error) {
-            console.error('❌ Error generating educational content:', error);
+            console.error('💥 Error in generateAllEducationalContent:', error);
             next(error);
         }
     }
@@ -228,7 +501,25 @@ class EnhancedProcessingController {
                 });
             }
 
-            const document = documentModel.findById(document_id);
+            console.log('📋 Fetching educational content for document:', document_id);
+
+            // Get document from main Supabase documents table where educational content is actually stored
+            const { supabaseAdmin } = await import('../lib/supabase.js');
+            const supabase = supabaseAdmin();
+
+            const { data: document, error: docError } = await supabase
+                .from('documents')
+                .select('id, name, created_at, summary, flashcards, quiz, educational_content_generated')
+                .eq('id', document_id)
+                .single();
+
+            if (docError) {
+                console.error('❌ Database error:', docError);
+                return res.status(500).json({
+                    error: 'Database error: ' + docError.message,
+                    success: false
+                });
+            }
 
             if (!document) {
                 return res.status(404).json({
@@ -237,20 +528,42 @@ class EnhancedProcessingController {
                 });
             }
 
-            // Increment view count
-            documentModel.incrementAnalytics(document_id, 'views');
+            console.log('✅ Document found:', {
+                name: document.name,
+                hasSummary: !!document.summary,
+                hasFlashcards: !!document.flashcards,
+                hasQuiz: !!document.quiz,
+                educationalContentGenerated: document.educational_content_generated
+            });
+
+            // Parse JSON fields if they're stored as strings
+            let summary = document.summary;
+            let flashcards = document.flashcards;
+            let quiz = document.quiz;
+
+            try {
+                if (typeof summary === 'string') {
+                    summary = JSON.parse(summary);
+                }
+                if (typeof flashcards === 'string') {
+                    flashcards = JSON.parse(flashcards);
+                }
+                if (typeof quiz === 'string') {
+                    quiz = JSON.parse(quiz);
+                }
+            } catch (parseError) {
+                console.log('⚠️ JSON parsing warning:', parseError.message);
+                // Continue with the original values if parsing fails
+            }
 
             res.json({
-                success: true,
-                data: {
-                    document_id: document.id,
-                    title: document.title,
-                    processed: document.processed,
-                    summary: document.summary,
-                    quiz: document.quiz,
-                    flashcards: document.flashcards,
-                    analytics: document.analytics
-                }
+                id: document.id,
+                name: document.name,
+                created_at: document.created_at,
+                summary: summary,
+                flashcards: flashcards,
+                quiz: quiz,
+                educational_content_generated: document.educational_content_generated
             });
         } catch (error) {
             console.error('❌ Error fetching document content:', error);
@@ -323,4 +636,4 @@ class EnhancedProcessingController {
     }
 }
 
-export default new EnhancedProcessingController(); 
+export default new EnhancedProcessingController();

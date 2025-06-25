@@ -5,7 +5,11 @@ class AnalyticsController {
     async getAnalyticsPageData(req, res, next) {
         try {
             const userId = req.user?.id || req.query.user_id || 'anonymous';
-            const analytics = sessionModel.getAnalytics(userId);
+            console.log('📊 Fetching analytics for user:', userId);
+
+            const analytics = await sessionModel.getAnalytics(userId);
+            console.log('📊 Analytics retrieved:', analytics);
+
             res.json({
                 success: true,
                 data: analytics
@@ -22,26 +26,33 @@ class AnalyticsController {
             const { document_id, document_title, session_type } = req.body;
             const userId = req.user?.id || req.body.user_id || 'anonymous';
 
-            if (!document_id) {
-                return res.status(400).json({
-                    error: 'Document ID is required',
+            const sessionData = {
+                user_id: userId,
+                document_id: document_id || null,
+                document_title: document_title || (session_type === 'browse' ? 'General Browsing' : 'Study Session'),
+                session_type: session_type || 'study'
+            };
+
+            const session = await sessionModel.createSession(sessionData);
+
+            if (!session) {
+                return res.status(500).json({
+                    error: 'Failed to create session',
                     success: false
                 });
             }
 
-            const sessionData = {
-                user_id: userId,
-                document_id,
-                document_title,
-                session_type: session_type || 'study'
-            };
+            // Update document analytics only if document_id is provided
+            if (document_id) {
+                try {
+                    await documentModel.incrementAnalytics(document_id, 'study_sessions');
+                } catch (docError) {
+                    console.warn('⚠️ Failed to update document analytics:', docError);
+                    // Don't fail the session creation if document analytics update fails
+                }
+            }
 
-            const session = sessionModel.createSession(sessionData);
-
-            // Update document analytics
-            documentModel.incrementAnalytics(document_id, 'study_sessions');
-
-            console.log('📚 Study session started:', session.id);
+            console.log('📚 Study session started:', session.id, `Type: ${session_type}`, document_id ? `Doc: ${document_id}` : 'General');
 
             res.json({
                 success: true,
@@ -69,7 +80,7 @@ class AnalyticsController {
                 });
             }
 
-            const session = sessionModel.endSession(session_id);
+            const session = await sessionModel.endSession(session_id);
 
             if (!session) {
                 return res.status(404).json({
@@ -101,16 +112,16 @@ class AnalyticsController {
             const { document_id, question, answer, correct, response_time } = req.body;
             const userId = req.user?.id || req.body.user_id || 'anonymous';
 
-            if (!document_id || !question) {
+            if (!question) {
                 return res.status(400).json({
-                    error: 'Document ID and question are required',
+                    error: 'Question is required',
                     success: false
                 });
             }
 
             const attemptData = {
                 user_id: userId,
-                document_id,
+                document_id: document_id || null,
                 type: 'flashcard',
                 question,
                 answer,
@@ -118,10 +129,23 @@ class AnalyticsController {
                 response_time: response_time || 0
             };
 
-            const attempt = sessionModel.trackAttempt(attemptData);
+            const attempt = await sessionModel.trackAttempt(attemptData);
 
-            // Update document analytics
-            documentModel.incrementAnalytics(document_id, 'flashcard_attempts');
+            if (!attempt) {
+                return res.status(500).json({
+                    error: 'Failed to track attempt',
+                    success: false
+                });
+            }
+
+            // Update document analytics only if document_id is provided
+            if (document_id) {
+                try {
+                    await documentModel.incrementAnalytics(document_id, 'flashcard_attempts');
+                } catch (docError) {
+                    console.warn('⚠️ Failed to update document analytics:', docError);
+                }
+            }
 
             console.log('🗂️ Flashcard attempt tracked:', attempt.id, correct ? '✅' : '❌');
 
@@ -130,7 +154,7 @@ class AnalyticsController {
                 data: {
                     status: "tracked",
                     attempt_id: attempt.id,
-                    correct: attempt.correct
+                    correct: attempt.is_correct
                 }
             });
         } catch (error) {
@@ -145,27 +169,40 @@ class AnalyticsController {
             const { document_id, question, answer, correct, response_time } = req.body;
             const userId = req.user?.id || req.body.user_id || 'anonymous';
 
-            if (!document_id || !question) {
+            if (!question) {
                 return res.status(400).json({
-                    error: 'Document ID and question are required',
+                    error: 'Question is required',
                     success: false
                 });
             }
 
             const attemptData = {
                 user_id: userId,
-                document_id,
-                type: 'quiz',
+                document_id: document_id || null,
+                type: 'quiz_question',
                 question,
                 answer,
                 correct: correct || false,
                 response_time: response_time || 0
             };
 
-            const attempt = sessionModel.trackAttempt(attemptData);
+            const attempt = await sessionModel.trackAttempt(attemptData);
 
-            // Update document analytics
-            documentModel.incrementAnalytics(document_id, 'quiz_attempts');
+            if (!attempt) {
+                return res.status(500).json({
+                    error: 'Failed to track attempt',
+                    success: false
+                });
+            }
+
+            // Update document analytics only if document_id is provided
+            if (document_id) {
+                try {
+                    await documentModel.incrementAnalytics(document_id, 'quiz_attempts');
+                } catch (docError) {
+                    console.warn('⚠️ Failed to update document analytics:', docError);
+                }
+            }
 
             console.log('❓ Quiz attempt tracked:', attempt.id, correct ? '✅' : '❌');
 
@@ -174,7 +211,7 @@ class AnalyticsController {
                 data: {
                     status: "tracked",
                     quiz_attempt_id: attempt.id,
-                    correct: attempt.correct
+                    correct: attempt.is_correct
                 }
             });
         } catch (error) {
@@ -192,28 +229,37 @@ class AnalyticsController {
                 score,
                 total_questions,
                 correct_answers,
-                time_taken
+                time_taken,
+                started_at
             } = req.body;
             const userId = req.user?.id || req.body.user_id || 'anonymous';
 
-            if (!document_id || score === undefined) {
+            if (score === undefined) {
                 return res.status(400).json({
-                    error: 'Document ID and score are required',
+                    error: 'Score is required',
                     success: false
                 });
             }
 
             const quizData = {
                 user_id: userId,
-                document_id,
-                document_title,
+                document_id: document_id || null,
+                document_title: document_title || 'Quiz',
                 score,
                 total_questions,
                 correct_answers,
-                time_taken
+                time_taken,
+                started_at
             };
 
-            const quiz = sessionModel.trackQuizCompletion(quizData);
+            const quiz = await sessionModel.trackQuizCompletion(quizData);
+
+            if (!quiz) {
+                return res.status(500).json({
+                    error: 'Failed to track quiz completion',
+                    success: false
+                });
+            }
 
             console.log('🎯 Quiz completion tracked:', quiz.id, `Score: ${score}%`);
 
@@ -245,7 +291,7 @@ class AnalyticsController {
                 });
             }
 
-            const progress = sessionModel.getDocumentProgress(document_id, userId);
+            const progress = await sessionModel.getDocumentProgress(document_id, userId);
 
             res.json({
                 success: true,
@@ -264,7 +310,7 @@ class AnalyticsController {
     async getUserStats(req, res, next) {
         try {
             const userId = req.user?.id || req.query.user_id || 'anonymous';
-            const analytics = sessionModel.getAnalytics(userId);
+            const analytics = await sessionModel.getAnalytics(userId);
 
             res.json({
                 success: true,

@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import LayoutClient from '../layout-client';
 import MarkdownMessage from '@/components/ui/markdown-message';
+import { useSessionTracking } from '@/lib/hooks/use-session-tracking';
 
 interface Message {
   id: string;
@@ -62,6 +63,13 @@ export default function ChatPageNew() {
   const [selectedProvider, setSelectedProvider] = useState<string>('');
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [showProviderSettings, setShowProviderSettings] = useState(false);
+
+  // Session tracking for analytics
+  const { recordActivity } = useSessionTracking({
+    activityType: 'chat',
+    documentId: documentId || undefined,
+    autoStart: true,
+  });
 
   // Ref for auto-scrolling to the bottom of messages
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -188,6 +196,9 @@ export default function ChatPageNew() {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+
+    // Record chat activity
+    recordActivity('chat');
 
     try {
       // Include provider and model in the chat request
@@ -387,6 +398,17 @@ export default function ChatPageNew() {
                 </span>
               </div>
               <div className="flex gap-2 flex-shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/study/${documentId}`)}
+                  className="text-xs flex items-center gap-1"
+                >
+                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                  </svg>
+                  Study
+                </Button>
                 <Button 
                   variant="ghost" 
                   size="sm"
@@ -490,9 +512,13 @@ export default function ChatPageNew() {
           {/* Input form */}
           <div className="border-t p-4 bg-white">
             <form onSubmit={handleSubmit} className="flex gap-2">
-          <Input
+                      <Input
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              // Record typing activity (throttled by the hook)
+              recordActivity('chat');
+            }}
                 placeholder={documentId && documentData?.document 
                   ? `Ask about "${documentData.document.name}"...` 
                   : "Type your message..."}

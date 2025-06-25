@@ -1,310 +1,489 @@
-// Analytics and Session Models for RAG System
+// Analytics and Session Models for RAG System - Database Version
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
     process.env.SUPABASE_URL,
-    process.env.SUPABASE_ANON_KEY
+    process.env.SUPABASE_SERVICE_ROLE_KEY // Use service role for server-side operations
 );
 
 // Document Model - Enhanced for analytics
 class DocumentModel {
     constructor() {
-        this.documents = new Map();
+        // No longer using in-memory storage
     }
 
-    create(documentData) {
-        const id = Date.now().toString();
-        const document = {
-            id,
-            ...documentData,
-            created_at: new Date().toISOString(),
-            processed: false,
-            analytics: {
-                views: 0,
-                study_sessions: 0,
-                quiz_attempts: 0,
-                flashcard_attempts: 0
-            }
-        };
-        this.documents.set(id, document);
-        return document;
-    }
+    async create(documentData) {
+        try {
+            const { data, error } = await supabase
+                .from('documents')
+                .insert({
+                    ...documentData,
+                    created_at: new Date().toISOString()
+                })
+                .select()
+                .single();
 
-    findById(id) {
-        return this.documents.get(id);
-    }
-
-    findAll() {
-        return Array.from(this.documents.values());
-    }
-
-    update(id, updateData) {
-        const document = this.documents.get(id);
-        if (document) {
-            const updatedDocument = { ...document, ...updateData };
-            this.documents.set(id, updatedDocument);
-            return updatedDocument;
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error creating document:', error);
+            return null;
         }
-        return null;
     }
 
-    delete(id) {
-        return this.documents.delete(id);
+    async findById(id) {
+        try {
+            const { data, error } = await supabase
+                .from('documents')
+                .select('*')
+                .eq('id', id)
+                .single();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error finding document:', error);
+            return null;
+        }
+    }
+
+    async findAll() {
+        try {
+            const { data, error } = await supabase
+                .from('documents')
+                .select('*');
+
+            if (error) throw error;
+            return data || [];
+        } catch (error) {
+            console.error('Error finding documents:', error);
+            return [];
+        }
+    }
+
+    async update(id, updateData) {
+        try {
+            const { data, error } = await supabase
+                .from('documents')
+                .update(updateData)
+                .eq('id', id)
+                .select()
+                .single();
+
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error('Error updating document:', error);
+            return null;
+        }
+    }
+
+    async delete(id) {
+        try {
+            const { error } = await supabase
+                .from('documents')
+                .delete()
+                .eq('id', id);
+
+            return !error;
+        } catch (error) {
+            console.error('Error deleting document:', error);
+            return false;
+        }
     }
 
     // Mark document as processed with AI-generated content
-    markAsProcessed(id, processedContent) {
-        const document = this.documents.get(id);
-        if (document) {
-            const updatedDocument = {
-                ...document,
-                ...processedContent,
-                processed: true
-            };
-            this.documents.set(id, updatedDocument);
-            return updatedDocument;
-        }
-        return null;
+    async markAsProcessed(id, processedContent) {
+        return this.update(id, {
+            ...processedContent,
+            educational_content_generated: new Date().toISOString()
+        });
     }
 
-    // Increment document analytics
-    incrementAnalytics(id, type) {
-        const document = this.documents.get(id);
-        if (document) {
-            document.analytics[type] = (document.analytics[type] || 0) + 1;
-            this.documents.set(id, document);
-            return document;
-        }
-        return null;
+    // Increment document analytics (can be used for view counts, etc.)
+    async incrementAnalytics(id, type) {
+        // For now, we'll just log this - could extend documents table with analytics columns
+        console.log(`📊 Analytics: ${type} incremented for document ${id}`);
+        return true;
     }
 }
 
-// Session Model for analytics
+// Session Model for analytics - Database Version
 class SessionModel {
     constructor() {
-        this.sessions = new Map();
-        this.attempts = new Map();
-        this.analytics = {
-            totalStudyTime: 0,
-            currentStreak: 0,
-            longestStreak: 0,
-            totalFlashcardsSeen: 0,
-            totalFlashcardsMastered: 0,
-            totalQuizzesCompleted: 0,
-            studySessionsThisWeek: 0
-        };
+        // No longer using in-memory storage
     }
 
-    createSession(sessionData) {
-        const id = `session-${Date.now()}`;
-        const session = {
-            id,
-            user_id: sessionData.user_id || 'anonymous',
-            document_id: sessionData.document_id,
-            document_title: sessionData.document_title || 'Unknown Document',
-            session_type: sessionData.session_type || 'study',
-            started_at: new Date().toISOString(),
-            status: 'active'
-        };
-        this.sessions.set(id, session);
-        return session;
+    async createSession(sessionData) {
+        try {
+            const { data, error } = await supabase
+                .from('study_sessions')
+                .insert({
+                    user_id: sessionData.user_id || 'anonymous',
+                    document_id: sessionData.document_id,
+                    document_title: sessionData.document_title || 'Unknown Document',
+                    session_type: sessionData.session_type || 'study',
+                    started_at: new Date().toISOString(),
+                    status: 'active'
+                })
+                .select()
+                .single();
+
+            if (error) throw error;
+            console.log('📚 Study session created:', data.id);
+            return data;
+        } catch (error) {
+            console.error('Error creating session:', error);
+            return null;
+        }
     }
 
-    endSession(id) {
-        const session = this.sessions.get(id);
-        if (session) {
+    async endSession(id) {
+        try {
             const endTime = new Date();
+
+            // Get the session to calculate duration
+            const { data: session, error: fetchError } = await supabase
+                .from('study_sessions')
+                .select('started_at')
+                .eq('id', id)
+                .single();
+
+            if (fetchError) throw fetchError;
+
             const startTime = new Date(session.started_at);
             const duration = Math.floor((endTime - startTime) / 1000); // duration in seconds
 
-            session.status = 'ended';
-            session.ended_at = endTime.toISOString();
-            session.duration = duration;
+            const { data, error } = await supabase
+                .from('study_sessions')
+                .update({
+                    status: 'ended',
+                    ended_at: endTime.toISOString(),
+                    duration: duration
+                })
+                .eq('id', id)
+                .select()
+                .single();
 
-            // Update analytics
-            this.analytics.totalStudyTime += duration;
-            this.analytics.studySessionsThisWeek += 1;
-
-            this.sessions.set(id, session);
-            return session;
+            if (error) throw error;
+            console.log('✅ Study session ended:', id, `Duration: ${duration}s`);
+            return data;
+        } catch (error) {
+            console.error('Error ending session:', error);
+            return null;
         }
-        return null;
     }
 
-    trackAttempt(attemptData) {
-        const id = `attempt-${Date.now()}`;
-        const attempt = {
-            id,
-            user_id: attemptData.user_id || 'anonymous',
-            document_id: attemptData.document_id,
-            type: attemptData.type, // 'flashcard' or 'quiz'
-            question: attemptData.question,
-            answer: attemptData.answer,
-            correct: attemptData.correct || false,
-            response_time: attemptData.response_time || 0,
-            created_at: new Date().toISOString()
-        };
+    async trackAttempt(attemptData) {
+        try {
+            const { data, error } = await supabase
+                .from('learning_attempts')
+                .insert({
+                    user_id: attemptData.user_id || 'anonymous',
+                    document_id: attemptData.document_id,
+                    attempt_type: attemptData.type, // 'flashcard' or 'quiz_question'
+                    question: attemptData.question,
+                    user_answer: attemptData.answer,
+                    correct_answer: attemptData.correct_answer,
+                    is_correct: attemptData.correct || false,
+                    response_time: attemptData.response_time || 0,
+                    created_at: new Date().toISOString()
+                })
+                .select()
+                .single();
 
-        // Update analytics based on attempt type
-        if (attempt.type === 'flashcard') {
-            this.analytics.totalFlashcardsSeen += 1;
-            if (attempt.correct) {
-                this.analytics.totalFlashcardsMastered += 1;
-            }
-        } else if (attempt.type === 'quiz') {
-            // Quiz completion tracking will be handled separately
+            if (error) throw error;
+            console.log(`📝 ${attemptData.type} attempt tracked:`, data.id, attemptData.correct ? '✅' : '❌');
+            return data;
+        } catch (error) {
+            console.error('Error tracking attempt:', error);
+            return null;
         }
-
-        this.attempts.set(id, attempt);
-        return attempt;
     }
 
-    trackQuizCompletion(quizData) {
-        const id = `quiz-${Date.now()}`;
-        const quiz = {
-            id,
-            user_id: quizData.user_id || 'anonymous',
-            document_id: quizData.document_id,
-            document_title: quizData.document_title || 'Unknown Document',
-            score: quizData.score || 0,
-            total_questions: quizData.total_questions || 0,
-            correct_answers: quizData.correct_answers || 0,
-            time_taken: quizData.time_taken || 0,
-            completed_at: new Date().toISOString()
-        };
+    async trackQuizCompletion(quizData) {
+        try {
+            const { data, error } = await supabase
+                .from('quiz_completions')
+                .insert({
+                    user_id: quizData.user_id || 'anonymous',
+                    document_id: quizData.document_id,
+                    document_title: quizData.document_title || 'Unknown Document',
+                    total_questions: quizData.total_questions || 0,
+                    correct_answers: quizData.correct_answers || 0,
+                    score: quizData.score || 0,
+                    time_taken: quizData.time_taken || 0,
+                    started_at: quizData.started_at,
+                    completed_at: new Date().toISOString()
+                })
+                .select()
+                .single();
 
-        this.analytics.totalQuizzesCompleted += 1;
-        this.attempts.set(id, quiz);
-        return quiz;
+            if (error) throw error;
+            console.log('🎯 Quiz completion tracked:', data.id, `Score: ${quizData.score}%`);
+            return data;
+        } catch (error) {
+            console.error('Error tracking quiz completion:', error);
+            return null;
+        }
     }
 
-    getAnalytics(userId = 'anonymous') {
-        // Get recent sessions for chart data
-        const recentSessions = Array.from(this.sessions.values())
-            .filter(s => s.user_id === userId && s.status === 'ended')
-            .sort((a, b) => new Date(b.ended_at) - new Date(a.ended_at))
-            .slice(0, 7);
+    async getAnalytics(userId = 'anonymous') {
+        try {
+            // Use the database function for analytics summary
+            const { data: overallData, error: overallError } = await supabase
+                .rpc('get_analytics_summary', { p_user_id: userId });
 
-        // Get flashcard performance by document
-        const flashcardAttempts = Array.from(this.attempts.values())
-            .filter(a => a.user_id === userId && a.type === 'flashcard');
+            if (overallError) throw overallError;
 
-        const flashcardPerformance = {};
-        flashcardAttempts.forEach(attempt => {
-            const docId = attempt.document_id;
-            if (!flashcardPerformance[docId]) {
-                flashcardPerformance[docId] = {
-                    document_title: 'Unknown Document',
-                    correct: 0,
-                    total: 0
-                };
+            // Get chart data
+            const [sessionChartData, flashcardChartData, quizChartData] = await Promise.all([
+                this.generateSessionChartData(userId),
+                this.generateFlashcardChartData(userId),
+                this.generateQuizChartData(userId)
+            ]);
+
+            return {
+                overall_analytics: overallData,
+                study_sessions_chart_data: sessionChartData,
+                flashcard_performance_chart_data: flashcardChartData,
+                quiz_performance_chart_data: quizChartData
+            };
+        } catch (error) {
+            console.error('Error getting analytics:', error);
+
+            // Return default empty analytics
+            return {
+                overall_analytics: {
+                    total_study_time: 0,
+                    current_streak: 0,
+                    longest_streak: 0,
+                    total_flashcards_seen: 0,
+                    total_flashcards_mastered: 0,
+                    flashcard_accuracy_overall: 0,
+                    total_quizzes_completed: 0,
+                    average_quiz_score_overall: 0,
+                    study_sessions_this_week_count: 0
+                },
+                study_sessions_chart_data: [],
+                flashcard_performance_chart_data: [],
+                quiz_performance_chart_data: []
+            };
+        }
+    }
+
+    async generateSessionChartData(userId) {
+        try {
+            const { data, error } = await supabase
+                .from('study_sessions')
+                .select('started_at, ended_at, duration')
+                .eq('user_id', userId)
+                .eq('status', 'ended')
+                .gte('started_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()) // Last 7 days
+                .order('started_at', { ascending: false });
+
+            if (error) throw error;
+
+            const chartData = [];
+            const today = new Date();
+
+            for (let i = 6; i >= 0; i--) {
+                const date = new Date(today);
+                date.setDate(date.getDate() - i);
+                const dateStr = date.toISOString().split('T')[0];
+
+                const daySessions = data.filter(s =>
+                    s.ended_at && s.ended_at.startsWith(dateStr)
+                );
+
+                const totalDuration = daySessions.reduce((sum, s) => sum + (s.duration || 0), 0);
+
+                chartData.push({
+                    date: dateStr,
+                    duration: Math.round(totalDuration / 60), // Convert to minutes
+                    sessions: daySessions.length
+                });
             }
-            flashcardPerformance[docId].total += 1;
-            if (attempt.correct) {
-                flashcardPerformance[docId].correct += 1;
-            }
-        });
 
-        // Get quiz performance
-        const quizResults = Array.from(this.attempts.values())
-            .filter(a => a.user_id === userId && a.score !== undefined)
-            .sort((a, b) => new Date(b.completed_at) - new Date(a.completed_at))
-            .slice(0, 5);
-
-        // Calculate averages
-        const avgQuizScore = quizResults.length > 0
-            ? quizResults.reduce((sum, quiz) => sum + quiz.score, 0) / quizResults.length
-            : 0;
-
-        const flashcardAccuracy = this.analytics.totalFlashcardsSeen > 0
-            ? (this.analytics.totalFlashcardsMastered / this.analytics.totalFlashcardsSeen) * 100
-            : 0;
-
-        return {
-            overall_analytics: {
-                total_study_time: this.analytics.totalStudyTime,
-                current_streak: this.analytics.currentStreak,
-                longest_streak: this.analytics.longestStreak,
-                total_flashcards_seen: this.analytics.totalFlashcardsSeen,
-                total_flashcards_mastered: this.analytics.totalFlashcardsMastered,
-                flashcard_accuracy_overall: Math.round(flashcardAccuracy * 100) / 100,
-                total_quizzes_completed: this.analytics.totalQuizzesCompleted,
-                average_quiz_score_overall: Math.round(avgQuizScore * 100) / 100,
-                study_sessions_this_week_count: this.analytics.studySessionsThisWeek
-            },
-            study_sessions_chart_data: this.generateSessionChartData(recentSessions),
-            flashcard_performance_chart_data: this.generateFlashcardChartData(flashcardPerformance),
-            quiz_performance_chart_data: this.generateQuizChartData(quizResults)
-        };
+            return chartData;
+        } catch (error) {
+            console.error('Error generating session chart data:', error);
+            return [];
+        }
     }
 
-    generateSessionChartData(sessions) {
-        const chartData = [];
-        const today = new Date();
+    async generateFlashcardChartData(userId) {
+        try {
+            // Get flashcard attempts first
+            const { data: attempts, error: attemptsError } = await supabase
+                .from('learning_attempts')
+                .select('document_id, is_correct')
+                .eq('user_id', userId)
+                .eq('attempt_type', 'flashcard');
 
-        for (let i = 6; i >= 0; i--) {
-            const date = new Date(today);
-            date.setDate(date.getDate() - i);
-            const dateStr = date.toISOString().split('T')[0];
+            if (attemptsError) throw attemptsError;
 
-            const daySessions = sessions.filter(s =>
-                s.ended_at && s.ended_at.startsWith(dateStr)
-            );
+            if (!attempts || attempts.length === 0) {
+                return [];
+            }
 
-            const totalDuration = daySessions.reduce((sum, s) => sum + (s.duration || 0), 0);
+            // Get unique document IDs and fetch document names
+            const docIds = [...new Set(attempts.map(a => a.document_id))];
 
-            chartData.push({
-                date: dateStr,
-                duration: Math.round(totalDuration / 60), // Convert to minutes
-                sessions: daySessions.length
+            // Try to fetch documents with both string and numeric ID matching
+            let documents = [];
+            try {
+                // First try treating document_id as numeric
+                const numericIds = docIds.map(id => {
+                    const parsed = parseInt(id);
+                    return isNaN(parsed) ? null : parsed;
+                }).filter(id => id !== null);
+
+                if (numericIds.length > 0) {
+                    const { data: numericDocs, error: numericError } = await supabase
+                        .from('documents')
+                        .select('id, name')
+                        .in('id', numericIds);
+
+                    if (!numericError && numericDocs) {
+                        documents = numericDocs;
+                    }
+                }
+
+                // If no documents found, try string matching
+                if (documents.length === 0) {
+                    const { data: stringDocs, error: stringError } = await supabase
+                        .from('documents')
+                        .select('id, name')
+                        .in('id', docIds);
+
+                    if (!stringError && stringDocs) {
+                        documents = stringDocs;
+                    }
+                }
+            } catch (docError) {
+                console.error('Error fetching documents:', docError);
+            }
+
+            // Create a map of document ID to name
+            const docNameMap = {};
+            documents.forEach(doc => {
+                docNameMap[doc.id.toString()] = doc.name;
             });
+
+            // Process performance data
+            const performance = {};
+            attempts.forEach(attempt => {
+                const docId = attempt.document_id;
+                const docName = docNameMap[docId] || 'Unknown Document';
+
+                if (!performance[docId]) {
+                    performance[docId] = {
+                        document_title: docName,
+                        correct: 0,
+                        total: 0
+                    };
+                }
+                performance[docId].total += 1;
+                if (attempt.is_correct) {
+                    performance[docId].correct += 1;
+                }
+            });
+
+            return Object.entries(performance).map(([docId, data]) => ({
+                document_title: data.document_title,
+                accuracy: data.total > 0 ? Math.round((data.correct / data.total) * 100 * 100) / 100 : 0,
+                attempts: data.total
+            }));
+        } catch (error) {
+            console.error('Error generating flashcard chart data:', error);
+            return [];
         }
-
-        return chartData;
     }
 
-    generateFlashcardChartData(performance) {
-        return Object.entries(performance).map(([docId, data]) => ({
-            document_title: data.document_title,
-            accuracy: data.total > 0 ? Math.round((data.correct / data.total) * 100 * 100) / 100 : 0,
-            attempts: data.total
-        }));
-    }
+    async generateQuizChartData(userId) {
+        try {
+            const { data, error } = await supabase
+                .from('quiz_completions')
+                .select('completed_at, score, document_title')
+                .eq('user_id', userId)
+                .order('completed_at', { ascending: false })
+                .limit(5);
 
-    generateQuizChartData(quizResults) {
-        return quizResults.map(quiz => ({
-            date: quiz.completed_at.split('T')[0],
-            score: quiz.score,
-            quiz_title: quiz.document_title
-        }));
+            if (error) throw error;
+
+            return data.map(quiz => ({
+                date: quiz.completed_at.split('T')[0],
+                score: parseFloat(quiz.score),
+                quiz_title: quiz.document_title || 'Unknown Quiz'
+            }));
+        } catch (error) {
+            console.error('Error generating quiz chart data:', error);
+            return [];
+        }
     }
 
     // Get user progress for a specific document
-    getDocumentProgress(documentId, userId = 'anonymous') {
-        const documentSessions = Array.from(this.sessions.values())
-            .filter(s => s.user_id === userId && s.document_id === documentId);
+    async getDocumentProgress(documentId, userId = 'anonymous') {
+        try {
+            const [sessionResult, flashcardResult, quizResult] = await Promise.all([
+                // Get study sessions
+                supabase
+                    .from('study_sessions')
+                    .select('duration')
+                    .eq('user_id', userId)
+                    .eq('document_id', documentId)
+                    .eq('status', 'ended'),
 
-        const flashcardAttempts = Array.from(this.attempts.values())
-            .filter(a => a.user_id === userId && a.document_id === documentId && a.type === 'flashcard');
+                // Get flashcard attempts
+                supabase
+                    .from('learning_attempts')
+                    .select('is_correct')
+                    .eq('user_id', userId)
+                    .eq('document_id', documentId)
+                    .eq('attempt_type', 'flashcard'),
 
-        const quizAttempts = Array.from(this.attempts.values())
-            .filter(a => a.user_id === userId && a.document_id === documentId && a.score !== undefined);
+                // Get quiz attempts
+                supabase
+                    .from('quiz_completions')
+                    .select('score')
+                    .eq('user_id', userId)
+                    .eq('document_id', documentId)
+            ]);
 
-        return {
-            total_study_time: documentSessions.reduce((sum, s) => sum + (s.duration || 0), 0),
-            study_sessions: documentSessions.length,
-            flashcard_attempts: flashcardAttempts.length,
-            flashcard_accuracy: flashcardAttempts.length > 0
-                ? (flashcardAttempts.filter(a => a.correct).length / flashcardAttempts.length) * 100
-                : 0,
-            quiz_attempts: quizAttempts.length,
-            best_quiz_score: quizAttempts.length > 0
-                ? Math.max(...quizAttempts.map(q => q.score))
-                : 0,
-            latest_activity: documentSessions.length > 0
-                ? documentSessions.sort((a, b) => new Date(b.started_at) - new Date(a.started_at))[0].started_at
-                : null
-        };
+            const sessions = sessionResult.data || [];
+            const flashcardAttempts = flashcardResult.data || [];
+            const quizAttempts = quizResult.data || [];
+
+            const totalStudyTime = sessions.reduce((sum, s) => sum + (s.duration || 0), 0);
+            const flashcardAccuracy = flashcardAttempts.length > 0
+                ? (flashcardAttempts.filter(a => a.is_correct).length / flashcardAttempts.length) * 100
+                : 0;
+            const bestQuizScore = quizAttempts.length > 0
+                ? Math.max(...quizAttempts.map(q => parseFloat(q.score)))
+                : 0;
+
+            return {
+                total_study_time: totalStudyTime,
+                study_sessions: sessions.length,
+                flashcard_attempts: flashcardAttempts.length,
+                flashcard_accuracy: Math.round(flashcardAccuracy * 100) / 100,
+                quiz_attempts: quizAttempts.length,
+                best_quiz_score: bestQuizScore,
+                latest_activity: sessions.length > 0 ? sessions[0].started_at : null
+            };
+        } catch (error) {
+            console.error('Error getting document progress:', error);
+            return {
+                total_study_time: 0,
+                study_sessions: 0,
+                flashcard_attempts: 0,
+                flashcard_accuracy: 0,
+                quiz_attempts: 0,
+                best_quiz_score: 0,
+                latest_activity: null
+            };
+        }
     }
 }
 
