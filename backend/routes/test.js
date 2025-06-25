@@ -1,9 +1,42 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Testing
+ *   description: Test, debug, and health check endpoints for API diagnostics and development
+ */
+
 import { Router } from 'express';
 import aiProviderManager from '../lib/ai-providers.js';
 import express from 'express';
 
 const router = Router();
 
+/**
+ * @swagger
+ * /test/health:
+ *   get:
+ *     summary: Health check endpoint
+ *     description: Simple health check to verify the backend API is running and accessible
+ *     tags: [Testing]
+ *     responses:
+ *       200:
+ *         description: Backend is healthy and running
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "ok"
+ *                 message:
+ *                   type: string
+ *                   example: "Backend is running"
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                   example: "2024-01-15T10:30:00.000Z"
+ */
 // Test endpoint that doesn't require authentication
 router.get('/health', (req, res) => {
     console.log('🔍 Health check request from origin:', req.headers.origin);
@@ -14,6 +47,48 @@ router.get('/health', (req, res) => {
     });
 });
 
+/**
+ * @swagger
+ * /test/env-debug:
+ *   get:
+ *     summary: Environment variables debug
+ *     description: Debug endpoint to check which environment variables are configured (shows existence and length, not actual values for security)
+ *     tags: [Testing]
+ *     responses:
+ *       200:
+ *         description: Environment variables status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 geminiApiKey:
+ *                   type: string
+ *                   example: "exists (32 chars)"
+ *                 openrouterApiKey:
+ *                   type: string
+ *                   example: "not found"
+ *                 openaiApiKey:
+ *                   type: string
+ *                   example: "exists"
+ *                 anthropicApiKey:
+ *                   type: string
+ *                   example: "not found"
+ *                 nodeEnv:
+ *                   type: string
+ *                   example: "development"
+ *                 frontendUrl:
+ *                   type: string
+ *                   example: "http://localhost:3000"
+ *                 backendUrl:
+ *                   type: string
+ *                   example: "http://localhost:3001"
+ *                 allEnvKeys:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: List of all environment variable names
+ */
 // Debug endpoint to check environment variables
 router.get('/env-debug', (req, res) => {
     res.json({
@@ -28,6 +103,44 @@ router.get('/env-debug', (req, res) => {
     });
 });
 
+/**
+ * @swagger
+ * /test/auth-test:
+ *   get:
+ *     summary: Authentication header test
+ *     description: Test endpoint to check if authentication headers are being sent correctly
+ *     tags: [Testing]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Authentication header information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 hasAuthHeader:
+ *                   type: boolean
+ *                   description: Whether Authorization header is present
+ *                 hasToken:
+ *                   type: boolean
+ *                   description: Whether token is extracted from header
+ *                 token:
+ *                   type: string
+ *                   example: "present"
+ *                   description: Token presence status
+ *                 tokenLength:
+ *                   type: number
+ *                   description: Length of the token
+ *                 tokenPreview:
+ *                   type: string
+ *                   example: "eyJhbGciOiJIUzI1NiI..."
+ *                   description: First 20 characters of token
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ */
 // Test endpoint for authentication
 router.get('/auth-test', (req, res) => {
     const authToken = req.headers.authorization?.replace('Bearer ', '');
@@ -42,6 +155,74 @@ router.get('/auth-test', (req, res) => {
     });
 });
 
+/**
+ * @swagger
+ * /test/validate-token:
+ *   get:
+ *     summary: Token validation test
+ *     description: Test endpoint to validate JWT token with Supabase and check user authentication
+ *     tags: [Testing]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Token validation results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 valid:
+ *                   type: boolean
+ *                   description: Whether token is valid
+ *                 hasUser:
+ *                   type: boolean
+ *                   description: Whether user exists
+ *                 userId:
+ *                   type: string
+ *                   nullable: true
+ *                   description: User ID if valid
+ *                 userEmail:
+ *                   type: string
+ *                   nullable: true
+ *                   description: User email if valid
+ *                 error:
+ *                   type: string
+ *                   nullable: true
+ *                   description: Error message if invalid
+ *                 errorCode:
+ *                   type: number
+ *                   nullable: true
+ *                   description: Error status code
+ *                 debug:
+ *                   type: object
+ *                   properties:
+ *                     tokenLength:
+ *                       type: number
+ *                     tokenFormat:
+ *                       type: object
+ *                       properties:
+ *                         isJWT:
+ *                           type: boolean
+ *                         jwtParts:
+ *                           type: number
+ *                         startsWithEy:
+ *                           type: boolean
+ *                         hasBearer:
+ *                           type: boolean
+ *                     supabaseResponse:
+ *                       type: object
+ *                       properties:
+ *                         hasData:
+ *                           type: boolean
+ *                         hasUser:
+ *                           type: boolean
+ *                         hasError:
+ *                           type: boolean
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ */
 // Test token validation
 router.get('/validate-token', async (req, res) => {
     const authToken = req.headers.authorization?.replace('Bearer ', '');
@@ -114,11 +295,86 @@ router.get('/validate-token', async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /test:
+ *   get:
+ *     summary: Basic test endpoint
+ *     description: Simple test endpoint to verify the test routes are working
+ *     tags: [Testing]
+ *     responses:
+ *       200:
+ *         description: Test endpoint is working
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Test endpoint is working"
+ */
 // Test endpoint for debugging AI responses
 router.get('/', (req, res) => {
     res.json({ message: 'Test endpoint is working' });
 });
 
+/**
+ * @swagger
+ * /test/ai-providers:
+ *   get:
+ *     summary: AI providers test
+ *     description: Test endpoint to check AI provider configurations and availability
+ *     tags: [Testing]
+ *     responses:
+ *       200:
+ *         description: AI providers information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 availableProviders:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: List of available AI providers
+ *                 availableProvidersWithModels:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/AIProvider'
+ *                 defaultProvider:
+ *                   type: string
+ *                   description: Default AI provider
+ *                 configuredProviders:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: Configured provider names
+ *                 initializedProviders:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: Successfully initialized providers
+ *                 environment:
+ *                   type: object
+ *                   properties:
+ *                     geminiApiKey:
+ *                       type: string
+ *                     openaiApiKey:
+ *                       type: string
+ *                     openrouterApiKey:
+ *                       type: string
+ *       500:
+ *         description: Error retrieving AI providers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ */
 // Test AI providers
 router.get('/ai-providers', (req, res) => {
     try {
@@ -168,6 +424,95 @@ function getFallbackResponse(message) {
     return null;
 }
 
+/**
+ * @swagger
+ * /test/ai-chat:
+ *   post:
+ *     summary: AI chat test
+ *     description: Test endpoint for AI chat functionality with fallback responses for common knowledge questions
+ *     tags: [Testing]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - message
+ *             properties:
+ *               message:
+ *                 type: string
+ *                 description: Message to send to AI
+ *                 example: "What does SWOT stand for?"
+ *               context:
+ *                 type: string
+ *                 description: Document context for the AI
+ *               provider:
+ *                 type: string
+ *                 description: AI provider to use
+ *                 example: "gemini"
+ *               model:
+ *                 type: string
+ *                 description: Specific model to use
+ *                 example: "gemini-pro"
+ *     responses:
+ *       200:
+ *         description: AI response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   description: AI response message
+ *                 provider:
+ *                   type: string
+ *                   description: AI provider used
+ *                 model:
+ *                   type: string
+ *                   description: Model used
+ *                 debug:
+ *                   type: object
+ *                   properties:
+ *                     messageLength:
+ *                       type: number
+ *                     contextProvided:
+ *                       type: boolean
+ *                     contextLength:
+ *                       type: number
+ *                     isDocumentQuestion:
+ *                       type: boolean
+ *                     isCommonKnowledgeQuestion:
+ *                       type: boolean
+ *                     isRelatedKnowledgeQuestion:
+ *                       type: boolean
+ *                     usedFallback:
+ *                       type: boolean
+ *                     systemPromptLength:
+ *                       type: number
+ *                     responseLength:
+ *                       type: number
+ *       400:
+ *         description: Message is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: AI service error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                 stack:
+ *                   type: string
+ *                 details:
+ *                   type: string
+ */
 // Test AI chat
 router.post('/ai-chat', async (req, res) => {
     try {
@@ -354,6 +699,60 @@ IMPORTANT INSTRUCTIONS:
     }
 });
 
+/**
+ * @swagger
+ * /test/openrouter-test:
+ *   get:
+ *     summary: OpenRouter test
+ *     description: Test OpenRouter AI provider directly to verify configuration and connectivity
+ *     tags: [Testing]
+ *     responses:
+ *       200:
+ *         description: OpenRouter test successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   description: AI response message
+ *                 model:
+ *                   type: string
+ *                   description: Model used
+ *                 provider:
+ *                   type: string
+ *                   example: "openrouter"
+ *       400:
+ *         description: OpenRouter API key not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "OpenRouter API key not found in environment variables"
+ *                 env_keys:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: Available environment variable names
+ *       500:
+ *         description: OpenRouter test failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                 stack:
+ *                   type: string
+ */
 // Test OpenRouter directly
 router.get('/openrouter-test', async (req, res) => {
     try {
@@ -401,6 +800,30 @@ router.get('/openrouter-test', async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /test/cors-test:
+ *   options:
+ *     summary: CORS preflight test
+ *     description: CORS preflight request handler for testing cross-origin requests
+ *     tags: [Testing]
+ *     responses:
+ *       200:
+ *         description: CORS preflight successful
+ *         headers:
+ *           Access-Control-Allow-Origin:
+ *             schema:
+ *               type: string
+ *           Access-Control-Allow-Methods:
+ *             schema:
+ *               type: string
+ *           Access-Control-Allow-Headers:
+ *             schema:
+ *               type: string
+ *           Access-Control-Allow-Credentials:
+ *             schema:
+ *               type: string
+ */
 // Add CORS test endpoint
 router.options('/cors-test', (req, res) => {
     console.log('🔄 CORS preflight test from origin:', req.headers.origin);
@@ -412,6 +835,34 @@ router.options('/cors-test', (req, res) => {
     res.sendStatus(200);
 });
 
+/**
+ * @swagger
+ * /test/cors-test:
+ *   get:
+ *     summary: CORS GET test
+ *     description: Test CORS GET request to verify cross-origin requests are working
+ *     tags: [Testing]
+ *     responses:
+ *       200:
+ *         description: CORS GET test successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "CORS test successful"
+ *                 origin:
+ *                   type: string
+ *                   description: Request origin
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                 headers:
+ *                   type: object
+ *                   description: Request headers
+ */
 router.get('/cors-test', (req, res) => {
     console.log('🌍 CORS test request from origin:', req.headers.origin);
     res.json({
@@ -422,6 +873,43 @@ router.get('/cors-test', (req, res) => {
     });
 });
 
+/**
+ * @swagger
+ * /test/cors-test:
+ *   post:
+ *     summary: CORS POST test
+ *     description: Test CORS POST request to verify cross-origin POST requests are working
+ *     tags: [Testing]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               test:
+ *                 type: string
+ *                 description: Test data
+ *     responses:
+ *       200:
+ *         description: CORS POST test successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "CORS POST test successful"
+ *                 origin:
+ *                   type: string
+ *                   description: Request origin
+ *                 body:
+ *                   type: object
+ *                   description: Request body
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ */
 router.post('/cors-test', (req, res) => {
     console.log('📝 CORS POST test from origin:', req.headers.origin);
     res.json({

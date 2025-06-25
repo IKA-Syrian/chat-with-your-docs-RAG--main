@@ -1,3 +1,10 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Embeddings
+ *   description: Vector embedding generation for document sections and semantic search
+ */
+
 import { Router } from 'express';
 import { createUserClient } from '../lib/supabase.js';
 import fetch from 'node-fetch';
@@ -37,6 +44,99 @@ const logger = {
     }
 };
 
+/**
+ * @swagger
+ * /embed:
+ *   post:
+ *     summary: Create embeddings for document sections
+ *     description: Generate vector embeddings for document sections to enable semantic search and RAG functionality
+ *     tags: [Embeddings]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               ids:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Array of record IDs to process
+ *                 example: ["section_1", "section_2"]
+ *               table:
+ *                 type: string
+ *                 description: Database table name
+ *                 example: "document_sections"
+ *               contentColumn:
+ *                 type: string
+ *                 description: Column containing text content
+ *                 example: "content"
+ *               embeddingColumn:
+ *                 type: string
+ *                 description: Column to store embeddings
+ *                 example: "embedding"
+ *               documentId:
+ *                 type: string
+ *                 description: Legacy parameter - document ID to process
+ *                 example: "doc_123"
+ *               force:
+ *                 type: boolean
+ *                 description: Force re-processing of existing embeddings
+ *                 example: false
+ *             oneOf:
+ *               - required: [ids, table, contentColumn, embeddingColumn]
+ *               - required: [documentId]
+ *     responses:
+ *       200:
+ *         description: Embeddings created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Embedding process completed"
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         description: Record ID
+ *                       success:
+ *                         type: boolean
+ *                         description: Whether embedding was successful
+ *                       error:
+ *                         type: string
+ *                         description: Error message if failed
+ *                       service:
+ *                         type: string
+ *                         description: AI service used (gemini/openai/openrouter/simple)
+ *                 processed:
+ *                   type: integer
+ *                   description: Total number of records processed
+ *                 successful:
+ *                   type: integer
+ *                   description: Number of successful embeddings
+ *                 failed:
+ *                   type: integer
+ *                   description: Number of failed embeddings
+ *       400:
+ *         description: Missing required parameters or invalid request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
 // Create embeddings for document sections
 router.post('/', async (req, res) => {
     try {

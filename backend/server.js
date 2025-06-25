@@ -26,6 +26,10 @@ import enhancedProcessingRoutes from './routes/enhanced-processing.js';
 // Import enhanced error handler
 import { enhancedErrorHandler } from './lib/enhanced-error-handler.js';
 
+// Import Swagger configuration
+import swaggerSpecs from './config/swagger.js';
+import swaggerUi from 'swagger-ui-express';
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -128,6 +132,24 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Serve static files from the public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Swagger API Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpecs, {
+    explorer: true,
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'Chat with Your Documents API',
+    swaggerOptions: {
+        docExpansion: 'list',
+        filter: true,
+        showRequestDuration: true,
+    },
+}));
+
+// Swagger JSON endpoint
+app.get('/api-docs.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpecs);
+});
+
 // Debug route
 app.get('/debug', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'debug.html'));
@@ -175,6 +197,8 @@ app.use('*', (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 Enhanced RAG Backend server running on port ${PORT}`);
     console.log(`📍 Health check: http://localhost:${PORT}/health`);
+    console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+    console.log(`📄 API Spec (JSON): http://localhost:${PORT}/api-docs.json`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🌍 CORS Origins: ${process.env.CORS_ORIGINS || 'default localhost ports'}`);
     console.log(`🎓 Features: RAG Chat, Document Processing, Analytics, Quiz Generation, Flashcards`);

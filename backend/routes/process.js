@@ -1,3 +1,10 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Processing
+ *   description: Document processing, text extraction, and embedding generation endpoints
+ */
+
 import { Router } from 'express';
 import { createUserClient, supabaseAdmin } from '../lib/supabase.js';
 import { validateUser } from './auth.js';
@@ -366,6 +373,97 @@ function createSimpleEmbedding(text, dimensions = 384) {
     return embedding;
 }
 
+/**
+ * @swagger
+ * /process:
+ *   post:
+ *     summary: Process a document
+ *     description: Process an uploaded document to extract text content, create sections, and generate embeddings for RAG functionality. Supports PDF, PowerPoint, Markdown, and text files.
+ *     tags: [Processing]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - document_id
+ *             properties:
+ *               document_id:
+ *                 type: string
+ *                 description: ID of the document to process
+ *                 example: "doc_123"
+ *     responses:
+ *       200:
+ *         description: Document processed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Document processed successfully"
+ *                 document_id:
+ *                   type: string
+ *                   description: ID of the processed document
+ *                 sections_created:
+ *                   type: integer
+ *                   description: Number of sections created
+ *                 embeddings_created:
+ *                   type: integer
+ *                   description: Number of embeddings generated
+ *                 processing_time:
+ *                   type: number
+ *                   description: Processing time in seconds
+ *                 file_type:
+ *                   type: string
+ *                   description: Type of file processed
+ *                   example: "application/pdf"
+ *                 content_length:
+ *                   type: integer
+ *                   description: Length of extracted content
+ *                 embedding_service:
+ *                   type: string
+ *                   description: AI service used for embeddings
+ *                   example: "gemini"
+ *       400:
+ *         description: Bad request - document_id missing or invalid
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         description: Document not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Processing failed - file extraction or embedding error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   description: Error message
+ *                 details:
+ *                   type: string
+ *                   description: Additional error details
+ *                 file_type:
+ *                   type: string
+ *                   description: Type of file that failed processing
+ *                 processing_stage:
+ *                   type: string
+ *                   description: Stage where processing failed
+ *                   enum: [file_retrieval, content_extraction, text_chunking, embedding_generation, database_storage]
+ */
 // Process a document
 router.post('/', async (req, res) => {
     try {

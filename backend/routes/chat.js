@@ -1,3 +1,10 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Chat
+ *   description: AI-powered chat with document context and conversation management
+ */
+
 import { Router } from 'express';
 import { createUserClient } from '../lib/supabase.js';
 import fetch from 'node-fetch';
@@ -8,6 +15,129 @@ import fs from 'fs';
 
 const router = Router();
 
+/**
+ * @swagger
+ * /chat:
+ *   post:
+ *     summary: Chat with AI using document context
+ *     description: Send a message to the AI with optional document context. The AI will respond based on relevant document sections and conversation history.
+ *     tags: [Chat]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - message
+ *             properties:
+ *               message:
+ *                 type: string
+ *                 description: The message to send to the AI
+ *                 example: "What are the key points in this document?"
+ *               conversation_id:
+ *                 type: string
+ *                 description: ID of existing conversation to continue
+ *                 example: "conv_123"
+ *               document_id:
+ *                 type: string
+ *                 description: ID of document to use as context
+ *                 example: "doc_456"
+ *               history:
+ *                 type: array
+ *                 description: Previous conversation history
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     role:
+ *                       type: string
+ *                       enum: [user, assistant]
+ *                     content:
+ *                       type: string
+ *               provider:
+ *                 type: string
+ *                 description: AI provider to use (optional)
+ *                 example: "openai"
+ *               model:
+ *                 type: string
+ *                 description: Specific model to use (optional)
+ *                 example: "gpt-4"
+ *     responses:
+ *       200:
+ *         description: Chat response generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 id:
+ *                   type: string
+ *                   description: Message ID
+ *                 message:
+ *                   type: string
+ *                   description: AI response message
+ *                 conversation_id:
+ *                   type: string
+ *                   description: Conversation ID
+ *                 document_id:
+ *                   type: string
+ *                   description: Document ID used for context
+ *                 document_name:
+ *                   type: string
+ *                   description: Document name
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                   description: Response timestamp
+ *                 sources:
+ *                   type: array
+ *                   description: Document sections used as context
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       document_id:
+ *                         type: string
+ *                       document_name:
+ *                         type: string
+ *                       content:
+ *                         type: string
+ *                 provider:
+ *                   type: string
+ *                   description: AI provider used
+ *                 model:
+ *                   type: string
+ *                   description: AI model used
+ *                 availableProviders:
+ *                   type: array
+ *                   description: List of available AI providers
+ *                   items:
+ *                     $ref: '#/components/schemas/AIProvider'
+ *       400:
+ *         description: Bad request - message is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: AI service error or internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                 details:
+ *                   type: string
+ *                 availableProviders:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/AIProvider'
+ */
 // Chat with documents endpoint
 router.post('/', async (req, res) => {
     try {
@@ -430,6 +560,32 @@ IMPORTANT INSTRUCTIONS:
     }
 });
 
+/**
+ * @swagger
+ * /chat/providers:
+ *   get:
+ *     summary: Get available AI providers
+ *     description: Retrieve list of configured and available AI providers with their models
+ *     tags: [Chat]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of available AI providers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 providers:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/AIProvider'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
 // Get available AI providers
 router.get('/providers', async (req, res) => {
     try {
@@ -453,6 +609,69 @@ router.get('/providers', async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /chat/conversations/{id}:
+ *   get:
+ *     summary: Get conversation history
+ *     description: Retrieve a specific conversation with its message history
+ *     tags: [Chat]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Conversation ID
+ *         example: "conv_123"
+ *     responses:
+ *       200:
+ *         description: Conversation history retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 conversation_id:
+ *                   type: string
+ *                   description: Conversation ID
+ *                 document_id:
+ *                   type: string
+ *                   description: Associated document ID
+ *                 document_name:
+ *                   type: string
+ *                   description: Associated document name
+ *                 title:
+ *                   type: string
+ *                   description: Conversation title
+ *                 created_at:
+ *                   type: string
+ *                   format: date-time
+ *                   description: Conversation creation timestamp
+ *                 messages:
+ *                   type: array
+ *                   description: Conversation messages
+ *                   items:
+ *                     $ref: '#/components/schemas/Message'
+ *       400:
+ *         description: Failed to retrieve messages
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Conversation not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
 // Get conversation history
 router.get('/conversations/:id', async (req, res) => {
     try {

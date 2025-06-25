@@ -1,3 +1,10 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Documents
+ *   description: Document upload, management, and retrieval endpoints
+ */
+
 import { Router } from 'express';
 import { createUserClient, supabaseAdmin } from '../lib/supabase.js';
 import multer from 'multer';
@@ -139,6 +146,38 @@ async function validateUser(authToken) {
     return { user, error: !user ? 'User not authenticated' : null };
 }
 
+/**
+ * @swagger
+ * /documents:
+ *   get:
+ *     summary: Get all user documents
+ *     description: Retrieve all documents uploaded by the authenticated user
+ *     tags: [Documents]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Documents retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 documents:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Document'
+ *       400:
+ *         description: Bad request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
 // Get all documents for authenticated user
 router.get('/', async (req, res) => {
     try {
@@ -359,6 +398,59 @@ router.post('/admin-storage-upload', upload.single('file'), async (req, res) => 
     }
 });
 
+/**
+ * @swagger
+ * /documents/upload:
+ *   post:
+ *     summary: Upload a new document
+ *     description: Upload a document file (PDF, PowerPoint, Markdown, or Text) for processing and analysis
+ *     tags: [Documents]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *                 description: Document file to upload
+ *           encoding:
+ *             file:
+ *               contentType: application/pdf, application/vnd.openxmlformats-officedocument.presentationml.presentation, application/vnd.ms-powerpoint, text/markdown, text/plain
+ *     responses:
+ *       200:
+ *         description: Document uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 document:
+ *                   $ref: '#/components/schemas/Document'
+ *                 redirect_to:
+ *                   type: string
+ *                   description: Suggested URL to redirect to after upload
+ *                   example: "/chat?document_id=doc_123"
+ *                 processing_started:
+ *                   type: boolean
+ *                   description: Whether automatic processing was started
+ *       400:
+ *         description: Bad request - no file provided or invalid file type
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         $ref: '#/components/responses/ServerError'
+ */
 // Upload a new document
 router.post('/upload', upload.single('file'), async (req, res) => {
     try {

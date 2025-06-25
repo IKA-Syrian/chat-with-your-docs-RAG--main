@@ -1,3 +1,10 @@
+/**
+ * @swagger
+ * tags:
+ *   name: Authentication
+ *   description: User authentication and authorization endpoints
+ */
+
 import { Router } from 'express';
 import { createUserClient, supabaseAdmin } from '../lib/supabase.js';
 import jwt from 'jsonwebtoken';
@@ -103,6 +110,60 @@ export async function validateUser(authToken) {
     }
 }
 
+/**
+ * @swagger
+ * /auth/sign-in:
+ *   post:
+ *     summary: Sign in user with email and password
+ *     description: Authenticate a user with their email and password credentials
+ *     tags: [Authentication]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's email address
+ *                 example: user@example.com
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 description: User's password
+ *                 example: secretPassword123
+ *     responses:
+ *       200:
+ *         description: User signed in successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         description: Bad request - missing email or password
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized - invalid credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // Sign in route
 router.post('/sign-in', async (req, res) => {
     try {
@@ -132,6 +193,55 @@ router.post('/sign-in', async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /auth/sign-up:
+ *   post:
+ *     summary: Register a new user account
+ *     description: Create a new user account with email and password
+ *     tags: [Authentication]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's email address
+ *                 example: newuser@example.com
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 6
+ *                 description: User's password (minimum 6 characters)
+ *                 example: myNewPassword123
+ *     responses:
+ *       200:
+ *         description: User account created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         description: Bad request - missing or invalid data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // Sign up route
 router.post('/sign-up', async (req, res) => {
     try {
@@ -161,6 +271,39 @@ router.post('/sign-up', async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /auth/sign-out:
+ *   post:
+ *     summary: Sign out current user
+ *     description: Sign out the currently authenticated user and invalidate their session
+ *     tags: [Authentication]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User signed out successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Signed out successfully
+ *       400:
+ *         description: Bad request - sign out failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // Sign out route
 router.post('/sign-out', async (req, res) => {
     try {
@@ -180,6 +323,38 @@ router.post('/sign-out', async (req, res) => {
     }
 });
 
+/**
+ * @swagger
+ * /auth/user:
+ *   get:
+ *     summary: Get current authenticated user
+ *     description: Retrieve information about the currently authenticated user
+ *     tags: [Authentication]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       401:
+ *         description: Unauthorized - no token provided or token invalid
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 // Get current user
 router.get('/user', async (req, res) => {
     try {
