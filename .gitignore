@@ -224,3 +224,5 @@ private/
 # Redundant entries removed - node_modules/ already covers all subdirectories
 
 *.sql
+
+.vscode/
