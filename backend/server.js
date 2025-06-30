@@ -37,11 +37,36 @@ const PORT = process.env.PORT || 3001;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Rate limiting
-const limiter = rateLimit({
+// Rate limiting configurations
+const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
+    max: 1000, // Increased from 100 to 1000 requests per windowMs for general routes
     message: 'Too many requests from this IP, please try again later.',
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
+// More lenient rate limiting for authentication routes
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 50, // Allow 50 authentication attempts per 15 minutes
+    message: {
+        error: 'Too many authentication attempts from this IP, please try again later.',
+        retryAfter: Math.ceil(15 * 60 / 60) // Retry after in minutes
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Skip successful requests from counting against the limit
+    skipSuccessfulRequests: true,
+});
+
+// Very lenient rate limiting for chat routes (they need more requests)
+const chatLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 200, // Allow more chat messages
+    message: 'Too many chat requests from this IP, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
 // Middleware
@@ -50,7 +75,7 @@ app.use(helmet({
 }));
 app.use(compression());
 app.use(morgan('combined'));
-app.use(limiter);
+// Note: We'll apply rate limiting per route instead of globally
 
 // CORS configuration - fixed to properly handle all origins and ports
 const corsOptions = {
@@ -164,17 +189,17 @@ app.get('/health', (req, res) => {
     });
 });
 
-// API routes
-app.use('/api/auth', authRoutes);
-app.use('/api/documents', documentsRoutes);
-app.use('/api/chat', chatRoutes);
-app.use('/api/embed', embedRoutes);
-app.use('/api/process', processRoutes);
-app.use('/api/test', testRoutes);
+// API routes with appropriate rate limiting
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/documents', generalLimiter, documentsRoutes);
+app.use('/api/chat', chatLimiter, chatRoutes);
+app.use('/api/embed', generalLimiter, embedRoutes);
+app.use('/api/process', generalLimiter, processRoutes);
+app.use('/api/test', generalLimiter, testRoutes);
 
 // Enhanced API routes
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/enhanced-processing', enhancedProcessingRoutes);
+app.use('/api/analytics', generalLimiter, analyticsRoutes);
+app.use('/api/enhanced-processing', generalLimiter, enhancedProcessingRoutes);
 
 // Health check also available under API path
 app.get('/api/health', (req, res) => {
@@ -184,6 +209,9 @@ app.get('/api/health', (req, res) => {
         uptime: process.uptime(),
     });
 });
+
+// Apply general rate limiting to any remaining API routes
+app.use('/api/*', generalLimiter);
 
 // Enhanced error handling middleware
 app.use(enhancedErrorHandler);

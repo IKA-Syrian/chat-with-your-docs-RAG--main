@@ -135,7 +135,7 @@ You must respond with ONLY a valid JSON object in this exact format:
 }
 
 Requirements:
-- Create exactly 5 multiple-choice questions
+- Create exactly 10 multiple-choice questions
 - Each question must have exactly 4 options (A, B, C, D)
 - correct_answer must be the index (0, 1, 2, or 3) of the correct option
 - Questions should test different aspects and difficulty levels
@@ -165,7 +165,7 @@ You must respond with ONLY a valid JSON object in this exact format:
 }
 
 Requirements:
-- Create exactly 8 flashcards
+- Create exactly 10 flashcards
 - Front side should be a question, key term, or concept
 - Back side should be a clear, educational answer or explanation
 - Cover the most important concepts and definitions

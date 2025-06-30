@@ -133,6 +133,21 @@ class ApiClient {
           }
         }
         
+        // Special handling for rate limiting errors
+        if (response.status === 429) {
+          console.log('⏰ Rate limiting error:', errorData.error);
+          const retryAfterHeader = response.headers.get('Retry-After') || response.headers.get('RateLimit-Reset');
+          const retryAfterSeconds = retryAfterHeader ? parseInt(retryAfterHeader) : 900; // Default to 15 minutes
+          const retryAfterMinutes = Math.ceil(retryAfterSeconds / 60);
+          
+          // Check if it's an authentication rate limit
+          if (endpoint.includes('/auth/')) {
+            throw new Error(`Too many sign-in attempts. Please wait ${retryAfterMinutes} minutes before trying again.`);
+          } else {
+            throw new Error(`Too many requests. Please wait ${retryAfterMinutes} minutes before trying again.`);
+          }
+        }
+        
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
