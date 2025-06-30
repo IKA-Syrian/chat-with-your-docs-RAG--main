@@ -63,6 +63,31 @@ export default function ChatPageNew() {
   const [selectedProvider, setSelectedProvider] = useState<string>('');
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [showProviderSettings, setShowProviderSettings] = useState(false);
+  const [providers, setProviders] = useState<AIProvider[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(true);
+
+  // Helper functions for AI provider management (same as study page)
+  const handleProviderChange = (providerId: string) => {
+    setSelectedProvider(providerId);
+    // Set default model for the provider
+    const provider = providers.find(p => p.id === providerId);
+    if (provider?.models?.primary) {
+      setSelectedModel(provider.models.primary);
+    }
+  };
+
+  const getAvailableModels = (providerId: string) => {
+    const provider = providers.find(p => p.id === providerId);
+    if (!provider?.models) return [];
+    
+    return [
+      { value: provider.models.primary, label: provider.models.primary },
+      ...(provider.models.alternatives || []).map(model => ({
+        value: model,
+        label: model
+      }))
+    ];
+  };
 
   // Session tracking for analytics
   const { recordActivity } = useSessionTracking({
@@ -83,6 +108,13 @@ export default function ChatPageNew() {
     scrollToBottom();
   }, [messages, isLoading]);
 
+  // Fetch AI providers when component mounts
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchAIProviders()
+    }
+  }, [isAuthenticated]);
+
   // Update conversation ID when URL changes
   useEffect(() => {
     if (conversationId !== currentConversationId) {
@@ -92,34 +124,46 @@ export default function ChatPageNew() {
     }
   }, [conversationId, currentConversationId]);
 
-  // Fetch AI providers
-  const { data: providersData, isLoading: areProvidersLoading } = useQuery({
-    queryKey: ['ai-providers'],
-    queryFn: () => apiClient.getAIProviders(),
-    enabled: isAuthenticated,
-  });
-
-  // Set default provider when data is loaded
-  useEffect(() => {
-    if (providersData?.providers && providersData.providers.length > 0 && !selectedProvider) {
-      const firstProvider = providersData.providers[0];
-      setSelectedProvider(firstProvider.id);
-      // Set default model for the provider
-      if (firstProvider.models?.primary) {
-        setSelectedModel(firstProvider.models.primary);
+  const fetchAIProviders = async () => {
+    try {
+      setProvidersLoading(true)
+      const response = await apiClient.getAIProviders()
+      const enabledProviders = response.providers.filter(p => p.enabled)
+      setProviders(enabledProviders)
+      
+      // Set default provider and model
+      if (enabledProviders.length > 0) {
+        const defaultProvider = enabledProviders[0]
+        setSelectedProvider(defaultProvider.id)
+        setSelectedModel(defaultProvider.models?.primary || '')
       }
+    } catch (err: any) {
+      console.error('Error fetching AI providers:', err)
+      toast({
+        title: "Warning",
+        description: "Failed to load AI providers. Using fallback options.",
+        variant: "destructive",
+      })
+      
+      // Fallback to basic providers if fetch fails
+      const fallbackProviders: AIProvider[] = [
+        {
+          id: 'gemini',
+          name: 'Google Gemini',
+          enabled: true,
+          models: {
+            primary: 'gemini-2.0-flash',
+            alternatives: ['gemini-1.5-flash', 'gemini-pro']
+          }
+        }
+      ]
+      setProviders(fallbackProviders)
+      setSelectedProvider('gemini')
+      setSelectedModel('gemini-2.0-flash')
+    } finally {
+      setProvidersLoading(false)
     }
-  }, [providersData, selectedProvider]);
-
-  // Update selected model when provider changes
-  useEffect(() => {
-    if (selectedProvider && providersData?.providers) {
-      const provider = providersData.providers.find(p => p.id === selectedProvider);
-      if (provider?.models?.primary) {
-        setSelectedModel(provider.models.primary);
-      }
-    }
-  }, [selectedProvider, providersData]);
+  }
 
   // Fetch document information - only if documentId is provided
   const { data: documentData, isLoading: isDocumentLoading } = useQuery({
@@ -285,256 +329,382 @@ export default function ChatPageNew() {
 
   return (
     <LayoutClient>
-      <div className="flex h-full overflow-hidden chat-container">
-        {/* Sidebar with conversation history */}
-        <div className="w-64 bg-gray-50 border-r overflow-y-auto flex-shrink-0 hidden md:flex md:flex-col chat-sidebar">
-          <div className="p-4 border-b">
-            <h3 className="font-medium text-sm">
-              {documentData?.document?.name || 'Chat History'}
-            </h3>
-          </div>
-          
-          <div className="p-2 flex-1 flex flex-col">
-            <Button 
-              variant="outline" 
-              className="w-full text-sm mb-4"
-              onClick={startNewConversation}
-            >
-              + New Chat
-            </Button>
-            
-            {/* AI Provider Selection */}
-            <div className="mb-4">
-              <label className="text-xs font-medium text-gray-600 mb-1 block">AI Provider</label>
-              <select
-                value={selectedProvider}
-                onChange={(e) => setSelectedProvider(e.target.value)}
-                className="w-full text-sm border rounded px-2 py-1 bg-white"
-                disabled={areProvidersLoading || isLoading}
-                title="Select AI Provider"
-              >
-                {providersData?.providers?.map((provider: AIProvider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
-            {/* Model Selection */}
-            {selectedProvider && providersData?.providers && (
-              <div className="mb-4">
-                <label className="text-xs font-medium text-gray-600 mb-1 block">Model</label>
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="w-full text-sm border rounded px-2 py-1 bg-white"
-                  disabled={isLoading}
-                  title="Select Model"
-                >
-                  {(() => {
-                    const provider = providersData.providers.find(p => p.id === selectedProvider);
-                    if (!provider?.models) return null;
-                    
-                    const allModels = [provider.models.primary, ...(provider.models.alternatives || [])];
-                    return allModels.map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ));
-                  })()}
-                </select>
-              </div>
-            )}
-            
-            {/* Conversations List */}
-            <div className="flex-1 overflow-y-auto chat-messages">
-              {areConversationsLoading ? (
-                <div className="text-center p-4">Loading conversations...</div>
-              ) : conversationsData?.conversations && conversationsData.conversations.length > 0 ? (
-                <ul className="space-y-1">
-                  {conversationsData.conversations.map((conv: Conversation) => (
-                    <li 
-                      key={conv.id} 
-                      className={`p-2 text-sm cursor-pointer rounded hover:bg-gray-200 ${
-                        currentConversationId === conv.id ? 'bg-gray-200' : ''
-                      }`}
-                      onClick={() => switchConversation(conv.id)}
-                    >
-                      <div className="truncate">{conv.title}</div>
-                      <div className="text-xs text-gray-500">
-                        {new Date(conv.last_message_at).toLocaleString()}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="text-center text-sm text-gray-500 p-4">
-                  No conversations yet
-                </div>
-              )}
-            </div>
-          </div>
-          
-          <div className="p-4 mt-auto border-t">
-            <Link href="/files" className="text-blue-600 hover:underline text-sm">
-              Back to Files
-            </Link>
-          </div>
-        </div>
-        
-        {/* Main chat area */}
-        <div className="flex-1 flex flex-col min-h-0 chat-main">
-          {/* Document info header */}
-          {documentId && documentData?.document && (
-            <div className="w-full p-3 bg-gray-100 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-              <div className="flex items-center min-w-0 flex-1">
-                <svg className="h-5 w-5 mr-2 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-                  <path fillRule="evenodd" d="M4 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm2 1h8v10H6V6z" clipRule="evenodd" />
+      <div className="flex flex-col h-full bg-gray-50">
+        {/* Mobile-Optimized Header */}
+        <header className="bg-white shadow-sm border-b flex-shrink-0">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            {/* Mobile Header */}
+            <div className="flex items-center py-4 sm:py-6">
+              <Button variant="ghost" size="sm" onClick={() => router.push("/files")} className="mr-2 sm:mr-4 p-2 sm:px-3">
+                <svg className="h-4 w-4 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                <span className="font-medium text-sm truncate">
-                  {documentData?.document?.name || 'Document Chat'}
-                </span>
+                <span className="hidden sm:inline">Back to Files</span>
+              </Button>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-lg sm:text-2xl font-bold text-gray-900 truncate">
+                  {documentData?.document ? `Chat: ${documentData.document.name}` : 'AI Chat'}
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-500">
+                  {documentData?.document ? 'Document conversation' : 'General AI conversation'}
+                </p>
               </div>
-              <div className="flex gap-2 flex-shrink-0">
+              
+              {/* Desktop Action Buttons */}
+              <div className="hidden md:flex items-center gap-4">
+                {documentId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push(`/study/${documentId}`)}
+                    className="flex items-center gap-2"
+                  >
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                    Study
+                  </Button>
+                )}
+                
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => router.push(`/study/${documentId}`)}
-                  className="text-xs flex items-center gap-1"
-                >
-                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                  </svg>
-                  Study
-                </Button>
-                <Button 
-                  variant="ghost" 
+                  variant="outline" 
                   size="sm"
                   onClick={() => setShowProviderSettings(!showProviderSettings)}
-                  className="text-xs"
+                  className="flex items-center gap-2"
                 >
-                  AI: {providersData?.providers?.find((p: AIProvider) => p.id === selectedProvider)?.name || 'Loading...'} 
-                  {selectedModel && ` (${selectedModel.split('/').pop()})`}
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  AI Settings
+                  <svg className={`h-4 w-4 transition-transform ${showProviderSettings ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </Button>
+
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={startNewConversation}
+                  className="flex items-center gap-2"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  New Chat
+                </Button>
+              </div>
+
+              {/* Mobile Action Buttons */}
+              <div className="flex md:hidden items-center gap-2">
+                {documentId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push(`/study/${documentId}`)}
+                    className="p-2"
+                    title="Study"
+                  >
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                  </Button>
+                )}
+
+                <Button
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setShowProviderSettings(!showProviderSettings)}
+                  className="p-2"
+                  title="AI Settings"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </Button>
+
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={startNewConversation}
+                  className="p-2"
+                  title="New Chat"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                </Button>
+              </div>
+            </div>
+
+            {/* Mobile Action Row */}
+            <div className="md:hidden pb-4">
+              <div className="flex gap-2 flex-wrap">
+                {documentId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push(`/study/${documentId}`)}
+                    className="flex items-center gap-1 text-xs"
+                  >
+                    📚 Study
+                  </Button>
+                )}
+                
+                <Button
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setShowProviderSettings(!showProviderSettings)}
+                  className="flex items-center gap-1 text-xs"
+                >
+                  ⚙️ AI Settings
+                </Button>
+
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={startNewConversation}
+                  className="flex items-center gap-1 text-xs"
+                >
+                  ➕ New Chat
+                </Button>
+
                 <Button 
                   variant="ghost" 
                   size="sm"
                   onClick={() => setShowSources(!showSources)}
                   disabled={currentSources.length === 0}
-                  className="text-xs"
+                  className="flex items-center gap-1 text-xs"
                 >
-                  {showSources ? 'Hide Sources' : 'Show Sources'}
+                  {showSources ? '🔽 Hide Sources' : '🔼 Show Sources'}
                 </Button>
               </div>
             </div>
-          )}
-          
-          {/* Messages container */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 chat-messages">
-            {messages.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-center">
-                <div className="max-w-md p-6">
-                  <h2 className="text-xl font-semibold mb-2">Start a conversation</h2>
-                  <p className="text-gray-600 mb-4">
-                    {documentId && documentData?.document 
-                      ? `Ask questions about "${documentData.document.name}" to get AI-powered answers with source citations.`
-                      : 'Start a new conversation with the AI assistant.'}
-                  </p>
-                  {providersData?.providers && (
-                    <p className="text-sm text-gray-500">
-                      Using {providersData.providers.find((p: AIProvider) => p.id === selectedProvider)?.name || 'AI Provider'}
-                    </p>
+
+            {/* AI Settings Panel */}
+            {showProviderSettings && (
+              <div className="pb-4 sm:pb-6 border-t border-gray-200 pt-4">
+                <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
+                  <h3 className="text-sm font-medium text-gray-900 mb-3">AI Configuration</h3>
+                  
+                  {providers && providers.length > 0 ? (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                        <div>
+                          <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                            Provider
+                          </label>
+                          <select
+                            value={selectedProvider}
+                            onChange={(e) => handleProviderChange(e.target.value)}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            aria-label="Select AI Provider"
+                          >
+                            {providers.map((provider) => (
+                              <option key={provider.id} value={provider.id}>
+                                {provider.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                            Model
+                          </label>
+                          <select
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value)}
+                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            aria-label="Select AI Model"
+                          >
+                            {getAvailableModels(selectedProvider).map((model) => (
+                              <option key={model.value} value={model.value}>
+                                {model.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Selected: {providers.find(p => p.id === selectedProvider)?.name || 'Unknown'} - {selectedModel || 'No model selected'}
+                      </p>
+                    </>
+                  ) : providersLoading ? (
+                    <div className="text-center py-4">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                      <p className="text-sm text-gray-500">Loading AI providers...</p>
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">
+                      <p className="text-sm text-red-600 mb-2">No AI providers available</p>
+                      <p className="text-xs text-gray-500">Check your backend configuration or try refreshing the page.</p>
+                    </div>
                   )}
                 </div>
               </div>
-            ) : (
-              <>
-                {messages.map((message) => (
-                  <div 
-                    key={message.id} 
-                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div 
-                      className={`max-w-[85%] sm:max-w-3xl rounded-lg px-4 py-2 ${
-                        message.role === 'user' 
-                          ? 'bg-blue-500 text-white' 
-                          : 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {message.role === 'assistant' ? (
-                        <MarkdownMessage 
-                          content={message.content}
-                          className="text-gray-800"
-                        />
-                      ) : (
-                        <div className="whitespace-pre-wrap break-words">{message.content}</div>
-                      )}
-                      <div className="text-xs mt-1 opacity-70">
-                        {new Date(message.timestamp).toLocaleTimeString()}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {isLoading && (
-                  <div className="flex justify-start">
-                    <div className="max-w-3xl rounded-lg px-4 py-2 bg-gray-100">
-                      <div className="typing">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {/* Invisible element for auto-scrolling */}
-                <div ref={messagesEndRef} />
-              </>
             )}
           </div>
-          
-          {/* Sources panel - conditionally rendered */}
-          {showSources && currentSources.length > 0 && (
-            <div className="border-t bg-gray-50 p-4 max-h-64 overflow-y-auto chat-messages">
-              <h3 className="font-medium text-sm mb-2">Sources</h3>
-              <div className="space-y-3">
-                {currentSources.map((source, index) => (
-                  <div key={index} className="bg-white p-3 rounded border text-sm">
-                    <div className="font-medium mb-1">{source.document_name}</div>
-                    <div className="text-gray-700">{source.content}</div>
+        </header>
+
+        <div className="flex h-full overflow-hidden chat-container">
+          {/* Sidebar with conversation history - Desktop Only */}
+          <div className="w-64 bg-gray-50 border-r overflow-y-auto flex-shrink-0 hidden md:flex md:flex-col chat-sidebar">
+            <div className="p-4 border-b">
+              <h3 className="font-medium text-sm">
+                {documentData?.document?.name || 'Chat History'}
+              </h3>
+            </div>
+            
+            <div className="p-2 flex-1 flex flex-col">
+              <Button 
+                variant="outline" 
+                className="w-full text-sm mb-4"
+                onClick={startNewConversation}
+              >
+                + New Chat
+              </Button>
+              
+              {/* Conversations List */}
+              <div className="flex-1 overflow-y-auto chat-messages">
+                {areConversationsLoading ? (
+                  <div className="text-center p-4">Loading conversations...</div>
+                ) : conversationsData?.conversations && conversationsData.conversations.length > 0 ? (
+                  <ul className="space-y-1">
+                    {conversationsData.conversations.map((conv: Conversation) => (
+                      <li 
+                        key={conv.id} 
+                        className={`p-2 text-sm cursor-pointer rounded hover:bg-gray-200 ${
+                          currentConversationId === conv.id ? 'bg-gray-200' : ''
+                        }`}
+                        onClick={() => switchConversation(conv.id)}
+                      >
+                        <div className="truncate">{conv.title}</div>
+                        <div className="text-xs text-gray-500">
+                          {new Date(conv.last_message_at).toLocaleString()}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="text-center text-sm text-gray-500 p-4">
+                    No conversations yet
                   </div>
-                ))}
+                )}
               </div>
             </div>
-          )}
+            
+            <div className="p-4 mt-auto border-t">
+              <Link href="/files" className="text-blue-600 hover:underline text-sm">
+                Back to Files
+              </Link>
+            </div>
+          </div>
           
-          {/* Input form */}
-          <div className="border-t p-4 bg-white">
-            <form onSubmit={handleSubmit} className="flex gap-2">
-                      <Input
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              // Record typing activity (throttled by the hook)
-              recordActivity('chat');
-            }}
-                placeholder={documentId && documentData?.document 
-                  ? `Ask about "${documentData.document.name}"...` 
-                  : "Type your message..."}
-            disabled={isLoading}
-                className="flex-1 min-w-0"
-          />
-              <Button type="submit" disabled={isLoading || !input.trim()} className="flex-shrink-0">
-                Send
-          </Button>
-        </form>
-      </div>
-    </div>
-
-        {/* Mobile sidebar toggle - for future mobile menu implementation */}
-        <div className="md:hidden fixed top-4 left-4 z-10">
-          {/* Placeholder for mobile menu button */}
+          {/* Main chat area */}
+          <div className="flex-1 flex flex-col min-h-0 chat-main">
+            {/* Messages container */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4 chat-messages">
+              {messages.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-center">
+                  <div className="max-w-md p-4 sm:p-6">
+                    <h2 className="text-lg sm:text-xl font-semibold mb-2">Start a conversation</h2>
+                    <p className="text-gray-600 mb-4 text-sm sm:text-base">
+                      {documentId && documentData?.document 
+                        ? `Ask questions about "${documentData.document.name}" to get AI-powered answers with source citations.`
+                        : 'Start a new conversation with the AI assistant.'}
+                    </p>
+                    {providers && providers.length > 0 && (
+                      <p className="text-xs sm:text-sm text-gray-500">
+                        Using {providers.find((p: AIProvider) => p.id === selectedProvider)?.name || 'AI Provider'}
+                        {selectedModel && ` (${selectedModel.split('/').pop()})`}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {messages.map((message) => (
+                    <div 
+                      key={message.id} 
+                      className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div 
+                        className={`max-w-[90%] sm:max-w-[85%] lg:max-w-3xl rounded-lg px-3 sm:px-4 py-2 ${
+                          message.role === 'user' 
+                            ? 'bg-blue-500 text-white' 
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {message.role === 'assistant' ? (
+                          <MarkdownMessage 
+                            content={message.content}
+                            className="text-gray-800 text-sm sm:text-base"
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap break-words text-sm sm:text-base">{message.content}</div>
+                        )}
+                        <div className="text-xs mt-1 opacity-70">
+                          {new Date(message.timestamp).toLocaleTimeString()}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {isLoading && (
+                    <div className="flex justify-start">
+                      <div className="max-w-3xl rounded-lg px-3 sm:px-4 py-2 bg-gray-100">
+                        <div className="typing">
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {/* Invisible element for auto-scrolling */}
+                  <div ref={messagesEndRef} />
+                </>
+              )}
+            </div>
+            
+            {/* Sources panel - conditionally rendered */}
+            {showSources && currentSources.length > 0 && (
+              <div className="border-t bg-gray-50 p-3 sm:p-4 max-h-48 sm:max-h-64 overflow-y-auto chat-messages">
+                <h3 className="font-medium text-sm mb-2">Sources</h3>
+                <div className="space-y-2 sm:space-y-3">
+                  {currentSources.map((source, index) => (
+                    <div key={index} className="bg-white p-2 sm:p-3 rounded border text-xs sm:text-sm">
+                      <div className="font-medium mb-1">{source.document_name}</div>
+                      <div className="text-gray-700">{source.content}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Mobile-Optimized Input form */}
+            <div className="border-t p-3 sm:p-4 bg-white">
+              <form onSubmit={handleSubmit} className="flex gap-2">
+                <Input
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    // Record typing activity (throttled by the hook)
+                    recordActivity('chat');
+                  }}
+                  placeholder={documentId && documentData?.document 
+                    ? `Ask about "${documentData.document.name}"...` 
+                    : "Type your message..."}
+                  disabled={isLoading}
+                  className="flex-1 min-w-0 text-sm sm:text-base"
+                />
+                <Button type="submit" disabled={isLoading || !input.trim()} className="flex-shrink-0 px-3 sm:px-4">
+                  <span className="hidden sm:inline">Send</span>
+                  <span className="sm:hidden">➤</span>
+                </Button>
+              </form>
+            </div>
+          </div>
         </div>
       </div>
     </LayoutClient>

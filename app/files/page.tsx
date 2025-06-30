@@ -9,7 +9,7 @@ import { useAuth } from '@/lib/api/auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Upload, BookOpen, Brain, Target, TrendingUp, Loader2, MessageSquare, GraduationCap, FileText, Calendar, Trash2 } from 'lucide-react';
+import { Upload, BookOpen, Brain, Target, TrendingUp, Loader2, MessageSquare, GraduationCap, FileText, Calendar, Trash2, MoreVertical } from 'lucide-react';
 import LayoutClient from '../layout-client';
 import { useSessionTracking } from '@/lib/hooks/use-session-tracking';
 
@@ -17,6 +17,7 @@ export default function FilesPage() {
   const { user, isAuthenticated } = useAuth();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
+  const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   // Session tracking for analytics
@@ -127,6 +128,11 @@ export default function FilesPage() {
     router.push(`/chat?document_id=${documentId}`);
   };
 
+  // Toggle mobile actions menu
+  const toggleDocumentActions = (documentId: string) => {
+    setExpandedDocument(expandedDocument === documentId ? null : documentId);
+  };
+
   // Remove duplicate documents (if any)
   const uniqueDocuments = documents.length > 0 
     ? Array.from(new Map(documents.map(doc => [doc.id, doc])).values())
@@ -141,14 +147,14 @@ export default function FilesPage() {
     const ext = filename.split('.').pop()?.toLowerCase();
     switch (ext) {
       case 'pdf':
-        return <FileText className="h-6 w-6 text-red-600" />;
+        return <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-red-600" />;
       case 'ppt':
       case 'pptx':
-        return <GraduationCap className="h-6 w-6 text-orange-600" />;
+        return <GraduationCap className="h-5 w-5 sm:h-6 sm:w-6 text-orange-600" />;
       case 'md':
-        return <BookOpen className="h-6 w-6 text-blue-600" />;
+        return <BookOpen className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />;
       default:
-        return <FileText className="h-6 w-6 text-gray-600" />;
+        return <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-gray-600" />;
     }
   };
 
@@ -164,32 +170,38 @@ export default function FilesPage() {
 
   return (
     <LayoutClient>
-      <div className="flex flex-col h-screen bg-gray-50">
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b flex-shrink-0">
+      <div className="h-full bg-gray-50 overflow-y-auto">
+        {/* Mobile-Optimized Header */}
+        <header className="bg-white shadow-sm border-b sticky top-0 z-40">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center py-6">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-4 sm:py-6 gap-3 sm:gap-0">
               <div className="flex items-center">
-                <Brain className="h-8 w-8 text-blue-600 mr-3" />
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">My Documents</h1>
-                  <p className="text-sm text-gray-500">Upload and manage your study materials</p>
+                <Brain className="h-6 w-6 sm:h-8 sm:w-8 text-blue-600 mr-2 sm:mr-3 flex-shrink-0" />
+                <div className="min-w-0">
+                  <h1 className="text-lg sm:text-2xl font-bold text-gray-900 truncate">My Documents</h1>
+                  <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">Upload and manage your study materials</p>
                 </div>
               </div>
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center gap-2 sm:gap-4 self-end sm:self-auto">
                 <Button
                   variant="outline" 
+                  size="sm"
                   onClick={() => router.push('/analytics')}
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"
                 >
-                  <TrendingUp className="h-4 w-4" /> Analytics
+                  <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4" /> 
+                  <span className="hidden sm:inline">Analytics</span>
+                  <span className="sm:hidden">📊</span>
                 </Button>
                 <Button
                   variant="outline" 
+                  size="sm"
                   onClick={() => router.push('/chat')}
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm"
                 >
-                  <MessageSquare className="h-4 w-4" /> Chat
+                  <MessageSquare className="h-3 w-3 sm:h-4 sm:w-4" /> 
+                  <span className="hidden sm:inline">Chat</span>
+                  <span className="sm:hidden">💬</span>
                 </Button>
               </div>
             </div>
@@ -197,125 +209,142 @@ export default function FilesPage() {
         </header>
 
         {/* Main Content - Scrollable */}
-        <main className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            {/* Upload Section */}
-            <Card className="mb-8">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Upload className="h-5 w-5" />
-                  Upload Document
-                </CardTitle>
-                <CardDescription>
-                  Upload PDF, PowerPoint, Markdown, or Text files to create study materials
-                </CardDescription>
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-6 sm:space-y-8">
+          {/* Mobile-Optimized Upload Section */}
+          <Card>
+            <CardHeader className="pb-4 sm:pb-6">
+              <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+                <Upload className="h-4 w-4 sm:h-5 sm:w-5" />
+                Upload Document
+              </CardTitle>
+              <CardDescription className="text-sm">
+                Upload PDF, PowerPoint, Markdown, or Text files to create study materials
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col items-center justify-center p-4 sm:p-6 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 transition-colors">
+                <Upload className="h-8 w-8 sm:h-12 sm:w-12 text-gray-400 mb-3 sm:mb-4" />
+                <Input
+                  type="file"
+                  name="file"
+                  accept=".md,.txt,.pdf,.ppt,.pptx,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint"
+                  className="cursor-pointer w-full max-w-xs text-sm"
+                  onChange={handleFileUpload}
+                  disabled={uploading}
+                />
+                {uploading && (
+                  <div className="flex items-center gap-2 mt-3 sm:mt-4">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <p className="text-sm text-gray-500">Uploading and processing...</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Mobile-Optimized Statistics Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Documents</CardTitle>
+                <BookOpen className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 transition-colors">
-                  <Upload className="h-12 w-12 text-gray-400 mb-4" />
-                  <Input
-                    type="file"
-                    name="file"
-                    accept=".md,.txt,.pdf,.ppt,.pptx,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint"
-                    className="cursor-pointer w-full max-w-xs"
-                    onChange={handleFileUpload}
-                    disabled={uploading}
-                  />
-                  {uploading && (
-                    <div className="flex items-center gap-2 mt-4">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <p className="text-sm text-gray-500">Uploading and processing...</p>
-                    </div>
-                  )}
-                </div>
+                <div className="text-xl sm:text-2xl font-bold">{totalDocuments}</div>
+                <p className="text-xs text-muted-foreground">Files uploaded</p>
               </CardContent>
             </Card>
-
-            {/* Statistics Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Documents</CardTitle>
-                  <BookOpen className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{totalDocuments}</div>
-                  <p className="text-xs text-muted-foreground">Files uploaded</p>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Study Ready</CardTitle>
-                  <Target className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{documentsWithEducationalContent}</div>
-                  <p className="text-xs text-muted-foreground">With study materials</p>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
-                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">
-                    {totalDocuments > 0 ? Math.round((documentsWithEducationalContent / totalDocuments) * 100) : 0}%
-                  </div>
-                  <p className="text-xs text-muted-foreground">Documents processed</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Documents Grid */}
+            
             <Card>
-              <CardHeader>
-                <CardTitle>Your Documents</CardTitle>
-                <CardDescription>
-                  {totalDocuments > 0 
-                    ? `${totalDocuments} document${totalDocuments === 1 ? '' : 's'} available for study`
-                    : 'No documents uploaded yet'
-                  }
-                </CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Study Ready</CardTitle>
+                <Target className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                {uniqueDocuments.length === 0 ? (
-                  <div className="text-center py-12">
-                    <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No documents yet</h3>
-                    <p className="text-gray-500 mb-4">Upload your first document to get started with AI-powered study materials</p>
-                    <p className="text-sm text-gray-400">Supported formats: PDF, PowerPoint, Markdown, Text</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {uniqueDocuments.map((document: any) => (
+                <div className="text-xl sm:text-2xl font-bold">{documentsWithEducationalContent}</div>
+                <p className="text-xs text-muted-foreground">With study materials</p>
+              </CardContent>
+            </Card>
+            
+            <Card className="sm:col-span-2 lg:col-span-1">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl sm:text-2xl font-bold">
+                  {totalDocuments > 0 ? Math.round((documentsWithEducationalContent / totalDocuments) * 100) : 0}%
+                </div>
+                <p className="text-xs text-muted-foreground">Documents processed</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Mobile-Optimized Documents Grid */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg sm:text-xl">Your Documents</CardTitle>
+              <CardDescription>
+                {totalDocuments > 0 
+                  ? `${totalDocuments} document${totalDocuments === 1 ? '' : 's'} available for study`
+                  : 'No documents uploaded yet'
+                }
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {uniqueDocuments.length === 0 ? (
+                <div className="text-center py-8 sm:py-12">
+                  <BookOpen className="h-10 w-10 sm:h-12 sm:w-12 text-gray-400 mx-auto mb-3 sm:mb-4" />
+                  <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">No documents yet</h3>
+                  <p className="text-sm text-gray-500 mb-3 sm:mb-4">Upload your first document to get started with AI-powered study materials</p>
+                  <p className="text-xs sm:text-sm text-gray-400">Supported formats: PDF, PowerPoint, Markdown, Text</p>
+                </div>
+              ) : (
+                <div className="space-y-3 sm:space-y-4">
+                  {uniqueDocuments.map((document: any) => (
+                    <div key={document.id} className="border rounded-lg overflow-hidden hover:bg-gray-50 transition-colors">
+                      {/* Main document info - clickable */}
                       <div
-                        key={document.id}
-                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+                        className="flex items-center justify-between p-3 sm:p-4 cursor-pointer"
                         onClick={() => handleDocumentClick(document.id)}
                       >
-                        <div className="flex items-center space-x-4">
-                          <div className="bg-blue-100 p-2 rounded-lg">
+                        <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
+                          <div className="bg-blue-100 p-1.5 sm:p-2 rounded-lg flex-shrink-0">
                             {getFileIcon(document.name)}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-gray-900 truncate">{document.name}</h3>
-                            <div className="flex items-center gap-4 text-sm text-gray-500">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-medium text-gray-900 truncate text-sm sm:text-base">{document.name}</h3>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 text-xs sm:text-sm text-gray-500">
                               <div className="flex items-center gap-1">
                                 <Calendar className="h-3 w-3" />
                                 {new Date(document.created_at).toLocaleDateString()}
                               </div>
                               {document.educational_content_generated && (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 w-fit">
                                   Study Ready
                                 </span>
                               )}
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                        
+                        {/* Mobile menu button */}
+                        <div className="sm:hidden">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleDocumentActions(document.id);
+                            }}
+                            className="p-2"
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </div>
+
+                        {/* Desktop action buttons */}
+                        <div className="hidden sm:flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
                           <Button
                             variant="outline"
                             size="sm"
@@ -344,7 +373,7 @@ export default function FilesPage() {
                             size="sm"
                             onClick={(e) => {
                               e.stopPropagation();
-                              recordActivity('browse'); // Track study navigation
+                              recordActivity('browse');
                               router.push(`/study/${document.id}`);
                             }}
                             className="flex items-center gap-1"
@@ -358,7 +387,7 @@ export default function FilesPage() {
                             size="sm"
                             onClick={(e) => {
                               e.stopPropagation();
-                              recordActivity('browse'); // Track chat navigation
+                              recordActivity('browse');
                               router.push(`/chat?document_id=${document.id}`);
                             }}
                             className="flex items-center gap-1"
@@ -385,12 +414,90 @@ export default function FilesPage() {
                           </Button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+
+                      {/* Mobile action buttons - expandable */}
+                      {expandedDocument === document.id && (
+                        <div className="sm:hidden border-t bg-gray-50 p-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                handleProcess(document.id);
+                                setExpandedDocument(null);
+                              }}
+                              disabled={processMutation.isPending}
+                              className="flex items-center justify-center gap-1 text-xs"
+                            >
+                              {processMutation.isPending ? (
+                                <>
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Processing
+                                </>
+                              ) : (
+                                <>
+                                  <Brain className="h-3 w-3" />
+                                  Process
+                                </>
+                              )}
+                            </Button>
+                            
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                recordActivity('browse');
+                                router.push(`/study/${document.id}`);
+                                setExpandedDocument(null);
+                              }}
+                              className="flex items-center justify-center gap-1 text-xs"
+                            >
+                              <GraduationCap className="h-3 w-3" />
+                              Study
+                            </Button>
+                            
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                recordActivity('browse');
+                                router.push(`/chat?document_id=${document.id}`);
+                                setExpandedDocument(null);
+                              }}
+                              className="flex items-center justify-center gap-1 text-xs"
+                            >
+                              <MessageSquare className="h-3 w-3" />
+                              Chat
+                            </Button>
+                            
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                handleDelete(document.id);
+                                setExpandedDocument(null);
+                              }}
+                              disabled={deleteMutation.isPending}
+                              className="flex items-center justify-center gap-1 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              {deleteMutation.isPending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <>
+                                  <Trash2 className="h-3 w-3" />
+                                  Delete
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </main>
       </div>
     </LayoutClient>

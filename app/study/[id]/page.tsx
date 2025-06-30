@@ -437,20 +437,21 @@ export default function StudyPage() {
       <div className="flex flex-col h-screen bg-gray-50">
         <header className="bg-white shadow-sm border-b flex-shrink-0">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center py-6">
-              <Button variant="ghost" size="sm" onClick={() => router.push("/files")} className="mr-4">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Files
+            {/* Mobile Header */}
+            <div className="flex items-center py-4 sm:py-6">
+              <Button variant="ghost" size="sm" onClick={() => router.push("/files")} className="mr-2 sm:mr-4 p-2 sm:px-3">
+                <ArrowLeft className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Back to Files</span>
               </Button>
-              <div className="flex-1">
-                <h1 className="text-2xl font-bold text-gray-900">{documentDetail.name}</h1>
-                <p className="text-sm text-gray-500">
+              <div className="flex-1 min-w-0">
+                <h1 className="text-lg sm:text-2xl font-bold text-gray-900 truncate">{documentDetail.name}</h1>
+                <p className="text-xs sm:text-sm text-gray-500">
                   Created {new Date(documentDetail.created_at).toLocaleDateString()}
                 </p>
               </div>
               
-              <div className="flex items-center gap-4">
-                {/* Chat Button */}
+              {/* Desktop Action Buttons */}
+              <div className="hidden md:flex items-center gap-4">
                 <Button
                   variant="outline"
                   size="sm"
@@ -465,7 +466,6 @@ export default function StudyPage() {
 
                 {hasAnyEducationalContent && providers.length > 0 && (
                   <>
-                    {/* AI Settings Toggle */}
                     <Button
                       variant="outline" 
                       size="sm"
@@ -477,7 +477,6 @@ export default function StudyPage() {
                       <ChevronDown className={`h-4 w-4 transition-transform ${showSettings ? 'rotate-180' : ''}`} />
                     </Button>
 
-                    {/* Regenerate Button */}
                     <Button onClick={() => generateEducationalContent(true)} disabled={generating}>
                       {generating ? (
                         <>
@@ -494,22 +493,110 @@ export default function StudyPage() {
                   </>
                 )}
               </div>
+
+              {/* Mobile Action Buttons */}
+              <div className="flex md:hidden items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/chat?document_id=${documentId}`)}
+                  className="p-2"
+                  title="Chat"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.478 8-10 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.478-8 10-8s10 3.582 10 8z" />
+                  </svg>
+                </Button>
+
+                {hasAnyEducationalContent && providers.length > 0 && (
+                  <>
+                    <Button
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setShowSettings(!showSettings)}
+                      className="p-2"
+                      title="AI Settings"
+                    >
+                      <Settings className="h-4 w-4" />
+                    </Button>
+
+                    <Button 
+                      onClick={() => generateEducationalContent(true)} 
+                      disabled={generating}
+                      size="sm"
+                      className="p-2"
+                      title="Regenerate"
+                    >
+                      {generating ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Mobile Action Row */}
+            <div className="md:hidden pb-4">
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push(`/chat?document_id=${documentId}`)}
+                  className="flex items-center gap-1 text-xs"
+                >
+                  💬 Chat
+                </Button>
+
+                {hasAnyEducationalContent && providers.length > 0 && (
+                  <>
+                    <Button
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setShowSettings(!showSettings)}
+                      className="flex items-center gap-1 text-xs"
+                    >
+                      ⚙️ Settings
+                    </Button>
+
+                    <Button 
+                      onClick={() => generateEducationalContent(true)} 
+                      disabled={generating}
+                      size="sm"
+                      className="flex items-center gap-1 text-xs"
+                    >
+                      {generating ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Regenerating...
+                        </>
+                      ) : (
+                        <>
+                          🔄 Regenerate
+                        </>
+                      )}
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
 
             {/* AI Settings Panel */}
             {showSettings && providers.length > 0 && (
-              <div className="pb-6 border-t border-gray-200 pt-4">
-                <div className="bg-gray-50 rounded-lg p-4">
+              <div className="pb-4 sm:pb-6 border-t border-gray-200 pt-4">
+                <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
                   <h3 className="text-sm font-medium text-gray-900 mb-3">AI Configuration</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                         Provider
                       </label>
                       <select
                         value={selectedProvider}
                         onChange={(e) => handleProviderChange(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                         aria-label="Select AI Provider"
                       >
                         {providers.map((provider) => (
@@ -520,13 +607,13 @@ export default function StudyPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                         Model
                       </label>
                       <select
                         value={selectedModel}
                         onChange={(e) => setSelectedModel(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                         aria-label="Select AI Model"
                       >
                         {getAvailableModels(selectedProvider).map((model) => (
@@ -547,7 +634,7 @@ export default function StudyPage() {
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
           {!hasAnyEducationalContent ? (
             <Card>
               <CardContent className="text-center py-12">
@@ -570,16 +657,16 @@ export default function StudyPage() {
                 
                 {/* AI Settings for initial generation */}
                 {providers.length > 0 && (
-                  <div className="max-w-md mx-auto mb-6">
-                    <div className="grid grid-cols-1 gap-4">
+                  <div className="max-w-md mx-auto mb-6 px-4 sm:px-0">
+                    <div className="grid grid-cols-1 gap-3 sm:gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                           AI Provider
                         </label>
                         <select
                           value={selectedProvider}
                           onChange={(e) => handleProviderChange(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           aria-label="Select AI Provider"
                         >
                           {providers.map((provider) => (
@@ -590,13 +677,13 @@ export default function StudyPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                           Model
                         </label>
                         <select
                           value={selectedModel}
                           onChange={(e) => setSelectedModel(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                           aria-label="Select AI Model"
                         >
                           {getAvailableModels(selectedProvider).map((model) => (
@@ -629,19 +716,22 @@ export default function StudyPage() {
               </CardContent>
             </Card>
           ) : (
-            <Tabs defaultValue="summary" className="space-y-6">
+            <Tabs defaultValue="summary" className="space-y-4 sm:space-y-6">
               <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="summary" className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4" />
-                  Summary
+                <TabsTrigger value="summary" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <BookOpen className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden sm:inline">Summary</span>
+                  <span className="sm:hidden">📄</span>
                 </TabsTrigger>
-                <TabsTrigger value="flashcards" className="flex items-center gap-2">
-                  <Target className="h-4 w-4" />
-                  Flashcards
+                <TabsTrigger value="flashcards" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Target className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden sm:inline">Flashcards</span>
+                  <span className="sm:hidden">🎯</span>
                 </TabsTrigger>
-                <TabsTrigger value="quiz" className="flex items-center gap-2">
-                  <Brain className="h-4 w-4" />
-                  Quiz
+                <TabsTrigger value="quiz" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <Brain className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden sm:inline">Quiz</span>
+                  <span className="sm:hidden">🧠</span>
                 </TabsTrigger>
               </TabsList>
 
@@ -655,24 +745,24 @@ export default function StudyPage() {
                   </CardHeader>
                   <CardContent>
                     {documentDetail.summary ? (
-                      <div className="space-y-6">
+                      <div className="space-y-4 sm:space-y-6">
                         <div className="prose max-w-none">
-                          <h4 className="text-lg font-semibold text-gray-900 mb-3">Summary</h4>
-                          <p className="text-gray-700 leading-relaxed">
+                          <h4 className="text-base sm:text-lg font-semibold text-gray-900 mb-3">Summary</h4>
+                          <p className="text-sm sm:text-base text-gray-700 leading-relaxed">
                             {documentDetail.summary.summary}
                           </p>
                         </div>
                         
-                                                  {documentDetail.summary.key_points && documentDetail.summary.key_points.length > 0 && (
-                            <div>
-                              <h4 className="text-lg font-semibold text-gray-900 mb-3">Key Points</h4>
-                              <ul className="space-y-2">
-                                {documentDetail.summary.key_points.map((point: string, index: number) => (
+                        {documentDetail.summary.key_points && documentDetail.summary.key_points.length > 0 && (
+                          <div>
+                            <h4 className="text-base sm:text-lg font-semibold text-gray-900 mb-3">Key Points</h4>
+                            <ul className="space-y-3">
+                              {documentDetail.summary.key_points.map((point: string, index: number) => (
                                 <li key={index} className="flex items-start gap-3">
-                                  <div className="flex-shrink-0 w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-medium">
+                                  <div className="flex-shrink-0 w-5 h-5 sm:w-6 sm:h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-xs sm:text-sm font-medium">
                                     {index + 1}
                                   </div>
-                                  <p className="text-gray-700">{point}</p>
+                                  <p className="text-sm sm:text-base text-gray-700 leading-relaxed">{point}</p>
                                 </li>
                               ))}
                             </ul>
@@ -680,7 +770,7 @@ export default function StudyPage() {
                         )}
                       </div>
                     ) : (
-                      <p className="text-gray-500">No summary available</p>
+                      <p className="text-gray-500 text-sm sm:text-base">No summary available</p>
                     )}
                   </CardContent>
                 </Card>
@@ -690,43 +780,67 @@ export default function StudyPage() {
                 <div className="space-y-4">
                   {documentDetail.flashcards?.flashcards && documentDetail.flashcards.flashcards.length > 0 ? (
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <h3 className="text-base sm:text-lg font-semibold">
                           Flashcard {currentCardIndex + 1} of {documentDetail.flashcards.flashcards.length}
                         </h3>
                         <div className="flex gap-2">
-                          <Button variant="outline" onClick={prevCard} disabled={documentDetail.flashcards.flashcards.length <= 1}>
-                            Previous
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={prevCard} 
+                            disabled={documentDetail.flashcards.flashcards.length <= 1}
+                            className="flex-1 sm:flex-none"
+                          >
+                            ← Previous
                           </Button>
-                          <Button variant="outline" onClick={nextCard} disabled={documentDetail.flashcards.flashcards.length <= 1}>
-                            Next
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={nextCard} 
+                            disabled={documentDetail.flashcards.flashcards.length <= 1}
+                            className="flex-1 sm:flex-none"
+                          >
+                            Next →
                           </Button>
                         </div>
                       </div>
 
-                      <Card className="h-64 cursor-pointer" onClick={flipCard}>
-                        <CardContent className="h-full flex items-center justify-center p-8">
+                      <Card className="min-h-[200px] sm:h-64 cursor-pointer" onClick={flipCard}>
+                        <CardContent className="h-full flex items-center justify-center p-4 sm:p-8">
                           <div className="text-center">
-                            <p className="text-lg mb-4">
+                            <p className="text-sm sm:text-lg mb-3 sm:mb-4 font-medium text-blue-600">
                               {showCardBack ? 'Answer:' : 'Question:'}
                             </p>
-                            <div className="text-xl text-gray-800">
+                            <div className="text-base sm:text-xl text-gray-800 leading-relaxed">
                               {showCardBack 
                                 ? documentDetail.flashcards.flashcards[currentCardIndex]?.back
                                 : documentDetail.flashcards.flashcards[currentCardIndex]?.front
                               }
                             </div>
-                            <p className="text-sm text-gray-500 mt-4">
-                              Click to {showCardBack ? 'see question' : 'reveal answer'}
+                            <p className="text-xs sm:text-sm text-gray-500 mt-3 sm:mt-4">
+                              Tap to {showCardBack ? 'see question' : 'reveal answer'}
                             </p>
                           </div>
                         </CardContent>
                       </Card>
 
-                      <Progress 
-                        value={((currentCardIndex + 1) / documentDetail.flashcards.flashcards.length) * 100} 
-                        className="w-full"
-                      />
+                      <div className="space-y-2">
+                        <Progress 
+                          value={((currentCardIndex + 1) / documentDetail.flashcards.flashcards.length) * 100} 
+                          className="w-full"
+                        />
+                        <div className="flex justify-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={flipCard}
+                            className="text-xs sm:text-sm"
+                          >
+                            {showCardBack ? '🔄 Show Question' : '🔄 Show Answer'}
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <Card>
@@ -777,24 +891,24 @@ export default function StudyPage() {
                                 </Button>
                               </div>
                             ) : (
-                              <div className="space-y-6">
+                              <div className="space-y-4 sm:space-y-6">
                                 {quizQuestions.map((question, questionIndex) => (
-                                  <div key={question.id} className="border rounded-lg p-4">
-                                    <h4 className="font-medium text-gray-900 mb-3">
+                                  <div key={question.id} className="border rounded-lg p-3 sm:p-4">
+                                    <h4 className="font-medium text-gray-900 mb-3 text-sm sm:text-base">
                                       Question {questionIndex + 1}. {question.question}
                                     </h4>
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 sm:space-y-3">
                                       {question.options.map((option, optionIndex) => (
-                                        <label key={optionIndex} className="flex items-center space-x-3 cursor-pointer">
+                                        <label key={optionIndex} className="flex items-start space-x-3 cursor-pointer p-2 hover:bg-gray-50 rounded">
                                           <input
                                             type="radio"
                                             name={`question-${question.id}`}
                                             value={optionIndex}
                                             checked={quizAnswers[question.id] === optionIndex}
                                             onChange={(e) => handleQuizAnswerChange(question.id, parseInt(e.target.value))}
-                                            className="form-radio h-4 w-4 text-blue-600"
+                                            className="form-radio h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0"
                                           />
-                                          <span className="text-gray-700">
+                                          <span className="text-gray-700 text-sm sm:text-base leading-relaxed">
                                             {String.fromCharCode(65 + optionIndex)}. {option}
                                           </span>
                                         </label>
@@ -803,13 +917,14 @@ export default function StudyPage() {
                                   </div>
                                 ))}
                                 
-                                <div className="flex justify-between items-center pt-4">
-                                  <p className="text-sm text-gray-600">
+                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center pt-4 gap-3">
+                                  <p className="text-xs sm:text-sm text-gray-600">
                                     {Object.keys(quizAnswers).length} of {quizQuestions.length} questions answered
                                   </p>
                                   <Button 
                                     onClick={submitQuiz} 
                                     disabled={Object.keys(quizAnswers).length !== quizQuestions.length || quizLoading}
+                                    className="w-full sm:w-auto"
                                   >
                                     {quizLoading ? (
                                       <>
@@ -817,7 +932,7 @@ export default function StudyPage() {
                                         Submitting...
                                       </>
                                     ) : (
-                                      'Submit Quiz'
+                                      '✅ Submit Quiz'
                                     )}
                                   </Button>
                                 </div>
@@ -859,69 +974,81 @@ export default function StudyPage() {
                                 </div>
                               )}
                               
-                              <div className="flex gap-2">
-                                <Button variant="outline" onClick={loadQuizQuestions}>
-                                  Retake Quiz
+                              <div className="flex flex-col sm:flex-row gap-2">
+                                <Button 
+                                  variant="outline" 
+                                  onClick={loadQuizQuestions}
+                                  className="w-full sm:w-auto"
+                                >
+                                  🔄 Retake Quiz
                                 </Button>
-                                <Button variant="outline" onClick={() => {
-                                  setQuizQuestions([])
-                                  setQuizAnswers({})
-                                  setQuizSubmitted(false)
-                                  setQuizResults([])
-                                  setQuizScore(null)
-                                  setQuizStartTime(null)
-                                }}>
-                                  Reset
+                                <Button 
+                                  variant="outline" 
+                                  onClick={() => {
+                                    setQuizQuestions([])
+                                    setQuizAnswers({})
+                                    setQuizSubmitted(false)
+                                    setQuizResults([])
+                                    setQuizScore(null)
+                                    setQuizStartTime(null)
+                                  }}
+                                  className="w-full sm:w-auto"
+                                >
+                                  🗑️ Reset
                                 </Button>
                               </div>
                             </CardContent>
                           </Card>
 
                           {/* Detailed Results */}
-                          <div className="space-y-4">
+                          <div className="space-y-3 sm:space-y-4">
                             {quizResults.map((result, index) => (
                               <Card key={result.questionId}>
-                                <CardHeader>
-                                  <CardTitle className="flex items-center gap-2 text-lg">
+                                <CardHeader className="pb-3 sm:pb-4">
+                                  <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
                                     {result.isCorrect ? (
-                                      <CheckCircle className="h-5 w-5 text-green-600" />
+                                      <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 flex-shrink-0" />
                                     ) : (
-                                      <XCircle className="h-5 w-5 text-red-600" />
+                                      <XCircle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600 flex-shrink-0" />
                                     )}
                                     Question {index + 1}
                                   </CardTitle>
                                 </CardHeader>
-                                <CardContent>
-                                  <div className="space-y-4">
-                                    <p className="font-medium text-gray-900">{result.question}</p>
+                                <CardContent className="pt-0">
+                                  <div className="space-y-3 sm:space-y-4">
+                                    <p className="font-medium text-gray-900 text-sm sm:text-base leading-relaxed">{result.question}</p>
                                     
                                     <div className="space-y-2">
                                       {result.options.map((option, optionIndex) => (
-                                        <div key={optionIndex} className={`p-3 rounded-lg border ${
+                                        <div key={optionIndex} className={`p-2 sm:p-3 rounded-lg border text-sm sm:text-base ${
                                           optionIndex === result.correctAnswer 
                                             ? 'bg-green-50 border-green-200 text-green-800' 
                                             : optionIndex === result.userAnswer && !result.isCorrect
                                             ? 'bg-red-50 border-red-200 text-red-800'
                                             : 'bg-gray-50 border-gray-200'
                                         }`}>
-                                          <span className="font-medium mr-2">
-                                            {String.fromCharCode(65 + optionIndex)}.
-                                          </span>
-                                          {option}
-                                          {optionIndex === result.correctAnswer && (
-                                            <span className="ml-2 text-green-600">✓ Correct</span>
-                                          )}
-                                          {optionIndex === result.userAnswer && !result.isCorrect && (
-                                            <span className="ml-2 text-red-600">✗ Your answer</span>
-                                          )}
+                                          <div className="flex items-start gap-2">
+                                            <span className="font-medium flex-shrink-0">
+                                              {String.fromCharCode(65 + optionIndex)}.
+                                            </span>
+                                            <span className="flex-1">{option}</span>
+                                            <div className="flex flex-col gap-1">
+                                              {optionIndex === result.correctAnswer && (
+                                                <span className="text-green-600 text-xs sm:text-sm whitespace-nowrap">✓ Correct</span>
+                                              )}
+                                              {optionIndex === result.userAnswer && !result.isCorrect && (
+                                                <span className="text-red-600 text-xs sm:text-sm whitespace-nowrap">✗ Your answer</span>
+                                              )}
+                                            </div>
+                                          </div>
                                         </div>
                                       ))}
                                     </div>
                                     
                                     {result.explanation && (
-                                      <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                                        <h5 className="font-medium text-blue-800 mb-1">Explanation:</h5>
-                                        <p className="text-blue-700">{result.explanation}</p>
+                                      <div className="mt-3 sm:mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                        <h5 className="font-medium text-blue-800 mb-1 text-sm sm:text-base">Explanation:</h5>
+                                        <p className="text-blue-700 text-sm sm:text-base leading-relaxed">{result.explanation}</p>
                                       </div>
                                     )}
                                   </div>
