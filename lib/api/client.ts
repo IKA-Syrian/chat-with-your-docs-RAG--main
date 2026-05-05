@@ -451,28 +451,25 @@ class ApiClient {
   }
 
   // Chat methods
-  async chat(message: string, conversationId?: string, documentId?: string, provider?: string, model?: string) {
+  async chat(
+    message: string,
+    conversationId?: string,
+    documentId?: string,
+    provider?: string,
+    model?: string,
+    explainMode?: 'default' | 'eli5' | 'student' | 'professor'
+  ) {
     const body: any = {
       message,
       history: []
     };
-    
-    if (conversationId) {
-      body.conversation_id = conversationId;
-    }
-    
-    if (documentId) {
-      body.document_id = documentId;
-    }
-    
-    if (provider) {
-      body.provider = provider;
-    }
-    
-    if (model) {
-      body.model = model;
-    }
-    
+
+    if (conversationId) body.conversation_id = conversationId;
+    if (documentId) body.document_id = documentId;
+    if (provider) body.provider = provider;
+    if (model) body.model = model;
+    if (explainMode && explainMode !== 'default') body.explain_mode = explainMode;
+
     return this.request<any>('/chat', {
       method: 'POST',
       body: JSON.stringify(body),

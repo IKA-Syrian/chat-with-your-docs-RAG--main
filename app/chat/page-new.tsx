@@ -12,19 +12,50 @@ import Link from 'next/link';
 import LayoutClient from '../layout-client';
 import MarkdownMessage from '@/components/ui/markdown-message';
 import { useSessionTracking } from '@/lib/hooks/use-session-tracking';
+import { useKeyboardShortcuts, formatShortcut, type Shortcut } from '@/lib/hooks/use-keyboard-shortcuts';
+
+interface Usage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  cost_usd?: number | null;
+  estimated?: boolean;
+}
+
+interface Source {
+  index?: number;
+  document_id: string;
+  document_name: string;
+  page?: number | null;
+  chunk_index?: number | null;
+  snippet?: string;
+  content?: string;
+}
 
 interface Message {
   id: string;
   content: string;
   role: 'user' | 'assistant';
   timestamp: string;
+  sources?: Source[];
+  usage?: Usage;
+  model?: string;
+  provider?: string;
 }
 
-interface Source {
-  document_id: string;
-  document_name: string;
-  content: string;
-}
+type ExplainMode = 'default' | 'eli5' | 'student' | 'professor';
+const EXPLAIN_MODE_LABELS: Record<ExplainMode, string> = {
+  default: 'Default',
+  eli5: 'ELI5',
+  student: 'Student',
+  professor: 'Professor'
+};
+const EXPLAIN_MODE_DESCRIPTIONS: Record<ExplainMode, string> = {
+  default: 'Standard explanation',
+  eli5: 'Explain like I\'m 5 — simple words & analogies',
+  student: 'Undergraduate level — clear, with examples',
+  professor: 'Expert level — precise terminology & depth'
+};
 
 interface Conversation {
   id: string;
@@ -65,6 +96,24 @@ export default function ChatPageNew() {
   const [showProviderSettings, setShowProviderSettings] = useState(false);
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [providersLoading, setProvidersLoading] = useState(true);
+  const [explainMode, setExplainMode] = useState<ExplainMode>('default');
+  const [expandedSourceMsg, setExpandedSourceMsg] = useState<string | null>(null);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // Persist explain-mode preference
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = localStorage.getItem('chat_explain_mode') as ExplainMode | null;
+    if (stored && ['default', 'eli5', 'student', 'professor'].includes(stored)) {
+      setExplainMode(stored);
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    localStorage.setItem('chat_explain_mode', explainMode);
+  }, [explainMode]);
+
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Helper functions for AI provider management (same as study page)
   const handleProviderChange = (providerId: string) => {
@@ -245,36 +294,41 @@ export default function ChatPageNew() {
     recordActivity('chat');
 
     try {
-      // Include provider and model in the chat request
+      // Include provider, model, and explain mode in the chat request
       const response = await apiClient.chat(
-        input, 
+        input,
         currentConversationId || undefined,
         documentId || undefined,
         selectedProvider || undefined,
-        selectedModel || undefined
+        selectedModel || undefined,
+        explainMode
       );
-      
+
       // Store the conversation ID if this is a new conversation
       if (!currentConversationId && response.conversation_id) {
         setCurrentConversationId(response.conversation_id);
         // Update URL with conversation_id
         const newUrl = `/chat?${documentId ? `document_id=${documentId}&` : ''}conversation_id=${response.conversation_id}`;
         window.history.pushState({}, '', newUrl);
-        
+
         // Invalidate conversations list to refresh sidebar
         queryClient.invalidateQueries(['conversations', documentId]);
       }
-      
+
       const assistantMessage: Message = {
         id: response.id,
         content: response.message,
         role: 'assistant',
         timestamp: response.timestamp,
+        sources: response.sources || [],
+        usage: response.usage || undefined,
+        model: response.model,
+        provider: response.provider
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-      
-      // Update sources if provided
+
+      // Update sources panel if provided
       if (response.sources && response.sources.length > 0) {
         setCurrentSources(response.sources);
       }
@@ -308,6 +362,48 @@ export default function ChatPageNew() {
     window.history.pushState({}, '', newUrl);
   };
 
+  // Feature 3: Keyboard shortcuts
+  const shortcuts: Shortcut[] = [
+    {
+      key: '/',
+      description: 'Focus the message input',
+      handler: () => inputRef.current?.focus()
+    },
+    {
+      key: 'n',
+      description: 'Start a new chat',
+      handler: () => startNewConversation()
+    },
+    {
+      key: 's',
+      description: 'Toggle sources panel',
+      handler: () => setShowSources(v => !v)
+    },
+    {
+      key: 'a',
+      description: 'Toggle AI settings',
+      handler: () => setShowProviderSettings(v => !v)
+    },
+    {
+      key: '?',
+      shift: true,
+      description: 'Show keyboard shortcuts',
+      handler: () => setShowShortcuts(v => !v)
+    },
+    {
+      key: 'Escape',
+      allowInInput: true,
+      description: 'Close overlays / blur input',
+      handler: () => {
+        if (showShortcuts) setShowShortcuts(false);
+        else if (showProviderSettings) setShowProviderSettings(false);
+        else if (expandedSourceMsg) setExpandedSourceMsg(null);
+        else (document.activeElement as HTMLElement | null)?.blur?.();
+      }
+    }
+  ];
+  useKeyboardShortcuts(shortcuts, isAuthenticated);
+
   const switchConversation = (conversationId: string) => {
     // Clear current messages and sources immediately
     setMessages([]);
@@ -329,6 +425,43 @@ export default function ChatPageNew() {
 
   return (
     <LayoutClient>
+      {/* Feature 3: Keyboard shortcuts help overlay */}
+      {showShortcuts && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setShowShortcuts(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-md w-full p-5"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900">Keyboard shortcuts</h3>
+              <button
+                onClick={() => setShowShortcuts(false)}
+                className="text-gray-400 hover:text-gray-600"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <ul className="text-sm space-y-2">
+              {shortcuts.map((sc, i) => (
+                <li key={i} className="flex items-center justify-between gap-3">
+                  <span className="text-gray-700">{sc.description}</span>
+                  <kbd className="px-2 py-0.5 text-xs font-mono bg-gray-100 border border-gray-300 rounded">
+                    {formatShortcut(sc)}
+                  </kbd>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-gray-500 mt-4">
+              Tip: shortcuts are disabled while typing in the message box (except <kbd>Esc</kbd>).
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col h-full bg-gray-50">
         {/* Mobile-Optimized Header */}
         <header className="bg-white shadow-sm border-b flex-shrink-0">
@@ -529,6 +662,33 @@ export default function ChatPageNew() {
                       <p className="text-xs text-gray-500 mt-2">
                         Selected: {providers.find(p => p.id === selectedProvider)?.name || 'Unknown'} - {selectedModel || 'No model selected'}
                       </p>
+
+                      {/* Feature 5: Explain-like toggle */}
+                      <div className="mt-4 pt-4 border-t border-gray-200">
+                        <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                          Explain like…
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {(['default', 'eli5', 'student', 'professor'] as ExplainMode[]).map(mode => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setExplainMode(mode)}
+                              className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                                explainMode === mode
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                              }`}
+                              title={EXPLAIN_MODE_DESCRIPTIONS[mode]}
+                            >
+                              {EXPLAIN_MODE_LABELS[mode]}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                          {EXPLAIN_MODE_DESCRIPTIONS[explainMode]}
+                        </p>
+                      </div>
                     </>
                   ) : providersLoading ? (
                     <div className="text-center py-4">
@@ -625,27 +785,83 @@ export default function ChatPageNew() {
               ) : (
                 <>
                   {messages.map((message) => (
-                    <div 
-                      key={message.id} 
+                    <div
+                      key={message.id}
                       className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
-                      <div 
+                      <div
                         className={`max-w-[90%] sm:max-w-[85%] lg:max-w-3xl rounded-lg px-3 sm:px-4 py-2 ${
-                          message.role === 'user' 
-                            ? 'bg-blue-500 text-white' 
+                          message.role === 'user'
+                            ? 'bg-blue-500 text-white'
                             : 'bg-gray-100 text-gray-800'
                         }`}
                       >
                         {message.role === 'assistant' ? (
-                          <MarkdownMessage 
+                          <MarkdownMessage
                             content={message.content}
                             className="text-gray-800 text-sm sm:text-base"
                           />
                         ) : (
                           <div className="whitespace-pre-wrap break-words text-sm sm:text-base">{message.content}</div>
                         )}
-                        <div className="text-xs mt-1 opacity-70">
-                          {new Date(message.timestamp).toLocaleTimeString()}
+
+                        {/* Feature 1: Source citations footer (assistant only) */}
+                        {message.role === 'assistant' && message.sources && message.sources.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-gray-200">
+                            <button
+                              onClick={() => setExpandedSourceMsg(expandedSourceMsg === message.id ? null : message.id)}
+                              className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                            >
+                              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                              </svg>
+                              {message.sources.length} source{message.sources.length === 1 ? '' : 's'}
+                              <span>{expandedSourceMsg === message.id ? '▾' : '▸'}</span>
+                            </button>
+                            {expandedSourceMsg === message.id && (
+                              <ol className="mt-2 space-y-2 text-xs">
+                                {message.sources.map((src, i) => (
+                                  <li key={i} className="bg-white border rounded p-2">
+                                    <div className="flex items-center justify-between gap-2 mb-1">
+                                      <span className="font-medium text-gray-800 truncate">
+                                        [{src.index ?? i + 1}] {src.document_name || 'Document'}
+                                        {src.page != null && <span className="text-gray-500"> · p.{src.page}</span>}
+                                      </span>
+                                      {src.document_id && (
+                                        <Link
+                                          href={`/study/${src.document_id}`}
+                                          className="text-blue-600 hover:underline whitespace-nowrap"
+                                        >
+                                          Open →
+                                        </Link>
+                                      )}
+                                    </div>
+                                    <div className="text-gray-600 break-words">
+                                      {src.snippet || src.content || ''}
+                                    </div>
+                                  </li>
+                                ))}
+                              </ol>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between gap-2 text-xs mt-1 opacity-70">
+                          <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
+                          {/* Feature 2: token + cost badge */}
+                          {message.role === 'assistant' && message.usage && (
+                            <span
+                              className="font-mono"
+                              title={`${message.usage.prompt_tokens || 0} prompt + ${message.usage.completion_tokens || 0} completion${message.usage.estimated ? ' (estimated)' : ''}${message.model ? ` · ${message.model}` : ''}`}
+                            >
+                              {message.usage.total_tokens || 0} tok
+                              {typeof message.usage.cost_usd === 'number' && (
+                                <> · ${message.usage.cost_usd < 0.01
+                                  ? message.usage.cost_usd.toFixed(5)
+                                  : message.usage.cost_usd.toFixed(4)}</>
+                              )}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -674,8 +890,11 @@ export default function ChatPageNew() {
                 <div className="space-y-2 sm:space-y-3">
                   {currentSources.map((source, index) => (
                     <div key={index} className="bg-white p-2 sm:p-3 rounded border text-xs sm:text-sm">
-                      <div className="font-medium mb-1">{source.document_name}</div>
-                      <div className="text-gray-700">{source.content}</div>
+                      <div className="font-medium mb-1">
+                        [{source.index ?? index + 1}] {source.document_name}
+                        {source.page != null && <span className="text-gray-500"> · p.{source.page}</span>}
+                      </div>
+                      <div className="text-gray-700">{source.snippet || source.content || ''}</div>
                     </div>
                   ))}
                 </div>
@@ -686,14 +905,15 @@ export default function ChatPageNew() {
             <div className="border-t p-3 sm:p-4 bg-white">
               <form onSubmit={handleSubmit} className="flex gap-2">
                 <Input
+                  ref={inputRef}
                   value={input}
                   onChange={(e) => {
                     setInput(e.target.value);
                     // Record typing activity (throttled by the hook)
                     recordActivity('chat');
                   }}
-                  placeholder={documentId && documentData?.document 
-                    ? `Ask about "${documentData.document.name}"...` 
+                  placeholder={documentId && documentData?.document
+                    ? `Ask about "${documentData.document.name}"...`
                     : "Type your message..."}
                   disabled={isLoading}
                   className="flex-1 min-w-0 text-sm sm:text-base"

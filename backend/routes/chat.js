@@ -147,11 +147,15 @@ router.post('/', async (req, res) => {
             return res.status(401).json({ error: 'No authorization token provided' });
         }
 
-        const { message, conversation_id, document_id, history = [], provider, model } = req.body;
+        const { message, conversation_id, document_id, history = [], provider, model, explain_mode } = req.body;
 
         if (!message) {
             return res.status(400).json({ error: 'Message is required' });
         }
+
+        // Validate explain_mode if provided
+        const VALID_EXPLAIN_MODES = ['default', 'eli5', 'student', 'professor'];
+        const safeExplainMode = VALID_EXPLAIN_MODES.includes(explain_mode) ? explain_mode : 'default';
 
         // Robust auth validation
         const { user, error: userError } = await validateUser(authToken);
@@ -423,10 +427,19 @@ router.post('/', async (req, res) => {
             }
         }
 
+        // Build explain-mode preamble (Feature 5)
+        const EXPLAIN_PRESETS = {
+            default: '',
+            eli5: 'STYLE: Explain like the user is 5 years old. Use very simple words, short sentences, friendly analogies, and avoid jargon. Keep it warm and encouraging.\n\n',
+            student: 'STYLE: Explain at the level of an undergraduate student. Use clear language, define new terms inline, and prefer concrete examples over heavy formalism.\n\n',
+            professor: 'STYLE: Explain at an advanced/expert level. Use precise terminology, structured reasoning, and reference deeper conceptual relationships when relevant.\n\n'
+        };
+        const explainPreamble = EXPLAIN_PRESETS[safeExplainMode] || '';
+
         // Prepare messages for AI
         const messages = [
             {
-                role: 'system', content: `You are a helpful assistant that answers questions based on the user's documents.
+                role: 'system', content: `${explainPreamble}You are a helpful assistant that answers questions based on the user's documents.
 
 THIS IS THE DOCUMENT CONTENT:
 ${context}
@@ -517,6 +530,26 @@ IMPORTANT INSTRUCTIONS:
                     });
             }
 
+            // Feature 1: enriched citations — stable index, longer snippet, page if available
+            const sourcesPayload = (relevantSections || []).map((section, i) => {
+                const snippet = (section.content || '').toString();
+                return {
+                    index: i + 1,
+                    document_id: section.document_id,
+                    document_name: section.documents?.name || documentInfo?.name || 'Document',
+                    page: section.page ?? section.page_number ?? null,
+                    chunk_index: section.chunk_index ?? null,
+                    snippet: snippet.length > 350 ? snippet.slice(0, 350) + '…' : snippet
+                };
+            });
+
+            // Feature 2: usage + cost estimation (best-effort across providers)
+            const usage = estimateUsage({
+                providerResponse: aiResponse,
+                messages,
+                aiMessage
+            });
+
             const response = {
                 id: generateId(),
                 message: aiMessage,
@@ -524,13 +557,11 @@ IMPORTANT INSTRUCTIONS:
                 document_id: document_id || null,
                 document_name: documentInfo?.name || null,
                 timestamp: new Date().toISOString(),
-                sources: relevantSections?.map(section => ({
-                    document_id: section.document_id,
-                    document_name: section.documents?.name,
-                    content: section.content.substring(0, 150) + '...'
-                })) || [],
+                sources: sourcesPayload,
+                explain_mode: safeExplainMode,
                 provider: aiResponse.provider,
                 model: aiResponse.model,
+                usage,
                 availableProviders
             };
 
@@ -975,6 +1006,75 @@ router.post('/debug-chat', async (req, res) => {
 // Utility function to generate simple IDs
 function generateId() {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
+}
+
+// ---------------------------------------------------------------------------
+// Feature 2: token usage + cost estimation
+// ---------------------------------------------------------------------------
+// Per-1M-token pricing in USD. Source: provider public pricing pages, May 2026.
+// Numbers are rough — used only for in-app estimates, not billing.
+const MODEL_PRICING = {
+    // OpenAI
+    'gpt-4o':                    { input: 2.50,  output: 10.00 },
+    'gpt-4o-mini':               { input: 0.15,  output: 0.60 },
+    'gpt-4-turbo':               { input: 10.00, output: 30.00 },
+    'gpt-4':                     { input: 30.00, output: 60.00 },
+    'gpt-3.5-turbo':             { input: 0.50,  output: 1.50 },
+    // Google Gemini
+    'gemini-2.0-flash':          { input: 0.10,  output: 0.40 },
+    'gemini-1.5-flash':          { input: 0.075, output: 0.30 },
+    'gemini-1.5-pro':            { input: 1.25,  output: 5.00 },
+    'gemini-pro':                { input: 0.50,  output: 1.50 },
+    // Claude (defaults if used via OpenRouter)
+    'claude-3-5-sonnet-20241022':{ input: 3.00,  output: 15.00 },
+    'claude-3-haiku-20240307':   { input: 0.25,  output: 1.25 }
+};
+
+// Approx token counter — 1 token ≈ 4 chars of English. Cheap and good enough for a UI badge.
+function approxTokensFromText(text) {
+    if (!text) return 0;
+    return Math.ceil(text.length / 4);
+}
+
+function lookupPricing(model) {
+    if (!model) return null;
+    if (MODEL_PRICING[model]) return MODEL_PRICING[model];
+    // Try a loose match — providers (esp. OpenRouter) prefix model names: "openai/gpt-4o-mini"
+    const tail = model.split('/').pop();
+    if (tail && MODEL_PRICING[tail]) return MODEL_PRICING[tail];
+    // Heuristic match by prefix
+    const known = Object.keys(MODEL_PRICING).find(k => tail?.startsWith(k));
+    return known ? MODEL_PRICING[known] : null;
+}
+
+function estimateUsage({ providerResponse, messages, aiMessage }) {
+    // Prefer real usage numbers from the provider response when available.
+    const raw = providerResponse?.usage || {};
+    const promptTokens =
+        raw.prompt_tokens ??
+        raw.input_tokens ??
+        raw.promptTokenCount ??
+        approxTokensFromText((messages || []).map(m => m.content || '').join('\n'));
+    const completionTokens =
+        raw.completion_tokens ??
+        raw.output_tokens ??
+        raw.candidatesTokenCount ??
+        approxTokensFromText(aiMessage || '');
+
+    const totalTokens = promptTokens + completionTokens;
+    const pricing = lookupPricing(providerResponse?.model);
+    const costUsd = pricing
+        ? (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000
+        : null;
+
+    return {
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: totalTokens,
+        // Round to 6 decimals so the UI can format cents/$
+        cost_usd: costUsd === null ? null : Number(costUsd.toFixed(6)),
+        estimated: !raw.prompt_tokens && !raw.input_tokens && !raw.promptTokenCount
+    };
 }
 
 export default router;

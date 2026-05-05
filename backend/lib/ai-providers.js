@@ -339,10 +339,16 @@ USER QUESTION: ${lastUserMessage.content}`;
                 const response = await result.response;
                 const text = response.text();
 
+                const usageMeta = response?.usageMetadata || result?.response?.usageMetadata || null;
                 return {
                     content: text,
                     model: modelName,
-                    provider: 'gemini'
+                    provider: 'gemini',
+                    usage: usageMeta ? {
+                        prompt_tokens: usageMeta.promptTokenCount,
+                        completion_tokens: usageMeta.candidatesTokenCount,
+                        total_tokens: usageMeta.totalTokenCount
+                    } : null
                 };
             } else {
                 // For older models, use the chat interface with history
@@ -401,10 +407,16 @@ When providing information not in the document, clearly indicate it with phrases
                 const response = await result.response;
                 const text = response.text();
 
+                const usageMeta = response?.usageMetadata || null;
                 return {
                     content: text,
                     model: modelName,
-                    provider: 'gemini'
+                    provider: 'gemini',
+                    usage: usageMeta ? {
+                        prompt_tokens: usageMeta.promptTokenCount,
+                        completion_tokens: usageMeta.candidatesTokenCount,
+                        total_tokens: usageMeta.totalTokenCount
+                    } : null
                 };
             }
         } catch (error) {
@@ -549,7 +561,8 @@ When providing information not in the document, clearly indicate it with phrases
             return {
                 content: data.choices[0]?.message?.content || '',
                 model: data.model || selectedModel,
-                provider: 'openrouter'
+                provider: 'openrouter',
+                usage: data.usage || null
             };
         } catch (error) {
             console.error('❌ OpenRouter API call failed:', error.message);
@@ -581,7 +594,8 @@ When providing information not in the document, clearly indicate it with phrases
         return {
             content: data.choices[0]?.message?.content || '',
             model: options.model || this.config.models.chat.primary,
-            provider: 'openai'
+            provider: 'openai',
+            usage: data.usage || null
         };
     }
 
@@ -618,7 +632,12 @@ When providing information not in the document, clearly indicate it with phrases
         return {
             content: data.content[0]?.text || '',
             model: options.model || this.config.models.chat.primary,
-            provider: 'claude'
+            provider: 'claude',
+            usage: data.usage ? {
+                prompt_tokens: data.usage.input_tokens,
+                completion_tokens: data.usage.output_tokens,
+                total_tokens: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0)
+            } : null
         };
     }
 }
