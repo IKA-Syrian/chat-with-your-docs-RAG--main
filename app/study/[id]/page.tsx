@@ -14,6 +14,8 @@ import { toast } from "@/components/ui/use-toast"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { useSessionTracking } from '@/lib/hooks/use-session-tracking'
+import { useKeyboardShortcuts, formatShortcut, type Shortcut } from '@/lib/hooks/use-keyboard-shortcuts'
+import ExportMenu from '@/components/ui/export-menu'
 
 // Types matching our backend responses
 interface DocumentDetail {
@@ -374,6 +376,19 @@ export default function StudyPage() {
     recordActivity('flashcard');
   }
 
+  // Feature 3: Keyboard shortcuts on the study page
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const studyShortcuts: Shortcut[] = [
+    { key: ' ', description: 'Flip current flashcard', handler: () => flipCard() },
+    { key: 'j', description: 'Next flashcard', handler: () => nextCard() },
+    { key: 'k', description: 'Previous flashcard', handler: () => prevCard() },
+    { key: 'ArrowRight', description: 'Next flashcard', handler: () => nextCard() },
+    { key: 'ArrowLeft', description: 'Previous flashcard', handler: () => prevCard() },
+    { key: '?', shift: true, description: 'Show keyboard shortcuts', handler: () => setShowShortcuts(v => !v) },
+    { key: 'Escape', allowInInput: true, description: 'Close overlays', handler: () => setShowShortcuts(false) }
+  ];
+  useKeyboardShortcuts(studyShortcuts, true);
+
   const handleQuizAnswerChange = (questionId: number, selectedOption: number) => {
     setQuizAnswers(prev => ({
       ...prev,
@@ -434,6 +449,38 @@ export default function StudyPage() {
 
   return (
     <LayoutClient>
+      {showShortcuts && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setShowShortcuts(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-md w-full p-5"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900">Keyboard shortcuts</h3>
+              <button
+                onClick={() => setShowShortcuts(false)}
+                className="text-gray-400 hover:text-gray-600"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <ul className="text-sm space-y-2">
+              {studyShortcuts.map((sc, i) => (
+                <li key={i} className="flex items-center justify-between gap-3">
+                  <span className="text-gray-700">{sc.description}</span>
+                  <kbd className="px-2 py-0.5 text-xs font-mono bg-gray-100 border border-gray-300 rounded">
+                    {formatShortcut(sc)}
+                  </kbd>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col h-screen bg-gray-50">
         <header className="bg-white shadow-sm border-b flex-shrink-0">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -717,6 +764,13 @@ export default function StudyPage() {
             </Card>
           ) : (
             <Tabs defaultValue="summary" className="space-y-4 sm:space-y-6">
+              {/* Feature 4: Export menu */}
+              <ExportMenu
+                baseName={documentDetail?.name || 'document'}
+                summary={documentDetail?.summary}
+                flashcards={documentDetail?.flashcards?.flashcards || documentDetail?.flashcards || []}
+                quiz={documentDetail?.quiz}
+              />
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="summary" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <BookOpen className="h-3 w-3 sm:h-4 sm:w-4" />
