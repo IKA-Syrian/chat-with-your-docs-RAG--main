@@ -374,6 +374,89 @@ Begin your response with { and end with }`;
         return this.parseJSONResponse(response, 'flashcards');
     }
 
+    /**
+     * Phase 4 #21 — generate a per-document knowledge graph as JSON.
+     * Returns shape: { nodes: [{id, label, summary, importance}], edges: [{source, target, type, label?}] }
+     */
+    async generateKnowledgeGraph(text, options = {}) {
+        console.log('🕸️ Generating knowledge graph...');
+        const prompt = this.createKnowledgeGraphPrompt(text);
+        const response = await this.callAIProvider(prompt, { maxTokens: 4000, temperature: 0.2, ...options });
+        const parsed = this.parseJSONResponse(response, 'knowledge_graph');
+
+        // Defensive normalization — ensure shape is sane regardless of model output.
+        const rawNodes = Array.isArray(parsed?.nodes) ? parsed.nodes : [];
+        const rawEdges = Array.isArray(parsed?.edges) ? parsed.edges : [];
+
+        const VALID_EDGE_TYPES = new Set(['prerequisite', 'related', 'example_of', 'contradicts']);
+        const seenIds = new Set();
+        const nodes = rawNodes
+            .map((n, i) => {
+                const id = String(n.id || `node-${i}`).slice(0, 64);
+                if (seenIds.has(id)) return null;
+                seenIds.add(id);
+                return {
+                    id,
+                    label: String(n.label || n.name || id).slice(0, 120),
+                    summary: String(n.summary || n.definition || '').slice(0, 400),
+                    importance: Math.max(1, Math.min(5, Number(n.importance) || 3))
+                };
+            })
+            .filter(Boolean)
+            .slice(0, 60);
+
+        const validIdSet = new Set(nodes.map(n => n.id));
+        const edges = rawEdges
+            .map(e => ({
+                source: String(e.source || e.from || '').slice(0, 64),
+                target: String(e.target || e.to || '').slice(0, 64),
+                type: VALID_EDGE_TYPES.has(e.type) ? e.type : 'related',
+                label: e.label ? String(e.label).slice(0, 80) : null
+            }))
+            .filter(e => e.source && e.target && e.source !== e.target && validIdSet.has(e.source) && validIdSet.has(e.target))
+            .slice(0, 200);
+
+        return { nodes, edges };
+    }
+
+    createKnowledgeGraphPrompt(text) {
+        const trimmed = (text || '').slice(0, 24_000);
+        return `You are an expert at extracting concept maps from study material.
+
+Read the document below and produce a knowledge graph capturing the key concepts and how they relate. Return ONLY a JSON object with this exact shape:
+
+{
+  "nodes": [
+    {
+      "id": "snake_case_id",
+      "label": "Human-readable name",
+      "summary": "1-2 sentence definition or explanation, in plain English",
+      "importance": 1-5
+    }
+  ],
+  "edges": [
+    { "source": "node_id_a", "target": "node_id_b", "type": "prerequisite|related|example_of|contradicts", "label": "optional short phrase" }
+  ]
+}
+
+Rules:
+- Aim for 8–25 nodes (more for long docs, fewer for short).
+- Use snake_case ASCII for node ids.
+- "prerequisite" = source must be understood before target.
+- "related" = same topic family.
+- "example_of" = source is an instance of target.
+- "contradicts" = the two concepts conflict / are alternatives.
+- "importance" 5 = central thesis, 1 = passing mention.
+- Do NOT include nodes with no edges (orphans). Every node must connect to at least one other.
+- Keep summaries factual; do not invent definitions not supported by the document.
+- Return ONLY the JSON object, no commentary, no code fences.
+
+DOCUMENT:
+${trimmed}
+
+Begin your response with { and end with }`;
+    }
+
     // Generate educational content from document text
     async generateEducationalContent(text) {
         console.log('🎓 Generating educational content from text...');
