@@ -19,6 +19,11 @@ drop or modify existing data.
 8. `2026-05-06-008-card-variety.sql` — `flashcards.card_type / cloze_text / expected_answer` + `short_answer_attempts` table
 9. `2026-05-06-009-mistake-journal.sql` — unified `wrong_answers` table
 
+### Phase 4 migrations
+10. `2026-05-06-010-knowledge-graph.sql` — `knowledge_graphs(document_id JSONB nodes/edges)` + RLS
+11. `2026-05-06-011-sharing.sql` — `can_read_document` / `can_write_document` helpers, `document_shares`, `document_invites`, expanded SELECT policies
+12. `2026-05-06-012-public-decks.sql` — `documents.published / tags / forked_from / upvotes_count` + `deck_upvotes` + `fork_document` RPC + public SELECT policies
+
 ## Lock notes (read before running on a populated DB)
 
 - **003-hybrid-search.sql** adds a `GENERATED ALWAYS AS ... STORED` column.
