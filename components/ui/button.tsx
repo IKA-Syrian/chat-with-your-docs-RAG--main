@@ -5,37 +5,25 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  // Base — precise typography, focused-ring uses the warm accent glow
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium tracking-tight transition-[background,color,box-shadow,transform] duration-200 ease-out focus-visible:outline-none focus-visible:shadow-focus disabled:pointer-events-none disabled:opacity-50 active:translate-y-px",
+  "inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        // Primary: the warm amber. Used for the ONE clear next action on a surface.
-        default:
-          "bg-accent text-accent-ink shadow-[inset_0_-1px_0_oklch(var(--accent-deep)/0.35)] hover:bg-accent-hi",
-        // A high-contrast filled variant in ink (used for hero CTAs in brand surfaces)
-        ink:
-          "bg-ink text-bg shadow-[inset_0_-1px_0_oklch(var(--ink)/0.6)] hover:bg-ink-soft",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
         destructive:
-          "bg-bad text-bg hover:bg-bad/90",
-        // Outline: hairline, neutral. The default for secondary actions.
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:
-          "border border-rule bg-surface text-ink hover:bg-surface-2 hover:border-rule-strong",
+          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
         secondary:
-          "bg-surface-2 text-ink hover:bg-surface-2/70",
-        // Ghost: no surface; great for compact toolbars and pill nav
-        ghost:
-          "text-ink-soft hover:text-ink hover:bg-surface-2",
-        // Link: serif emphasis with an accented underline
-        link:
-          "text-accent-deep underline-offset-4 decoration-accent/40 hover:underline hover:decoration-accent",
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-11 rounded-lg px-6 text-[0.95rem]",
-        xl: "h-12 rounded-lg px-7 text-base",
-        icon: "h-9 w-9",
+        default: "h-10 px-4 py-2",
+        sm: "h-9 rounded-md px-3",
+        lg: "h-11 rounded-md px-8",
+        icon: "h-10 w-10",
       },
     },
     defaultVariants: {

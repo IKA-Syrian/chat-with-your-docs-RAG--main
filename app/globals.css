@@ -1,287 +1,188 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* ============================================================
-   Design tokens — warm, scholarly, restrained.
-   Strategy: tinted neutrals + one saturated amber for actions.
-   Theme: warm-cream light (default), warm-ink dark (toggle).
-   Hue family: 60..80 (orange-amber). Chroma collapses near
-   the lightness extremes to avoid garish warmth.
-   ============================================================ */
+ 
 @layer base {
   :root {
-    /* Surfaces */
-    --bg:           98% 0.008 80;     /* paper, barely warm */
-    --surface:      96.5% 0.012 80;   /* card / nav / floating panel */
-    --surface-2:    93% 0.014 78;     /* second-level inset, modal */
-    --surface-sunk: 99.2% 0.005 80;   /* the canvas BENEATH bg in some places */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
 
-    /* Ink scale (text + iconography) */
-    --ink:          22% 0.022 60;
-    --ink-soft:     45% 0.014 60;
-    --ink-faint:    62% 0.010 65;
-    --ink-mute:     75% 0.008 70;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+ 
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+ 
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+ 
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+ 
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+ 
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+ 
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
 
-    /* Hairlines */
-    --rule:         89% 0.014 75;
-    --rule-strong:  82% 0.018 70;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+ 
+    --radius: 0.5rem;
 
-    /* Accent — the ONLY saturated role. Used for primary actions,
-       active state, current selection. Never decorative. */
-    --accent:       66% 0.16 60;
-    --accent-hi:    72% 0.165 62;
-    --accent-deep:  52% 0.165 55;
-    --accent-ink:   18% 0.04 60;       /* text ON accent */
-    --accent-soft:  94% 0.05 75;       /* accent-tinted bg for badges/tags */
-    --accent-glow:  82% 0.10 70;       /* faint accent for hover surfaces */
-
-    /* State colors — desaturated on purpose */
-    --good:         55% 0.12 150;
-    --good-soft:    93% 0.04 150;
-    --warn:         70% 0.16 75;
-    --warn-soft:    94% 0.05 80;
-    --bad:          55% 0.18 28;
-    --bad-soft:     93% 0.045 30;
-
-    /* Semantic application of tokens */
-    --background:           var(--bg);
-    --foreground:           var(--ink);
-    --card:                 var(--surface);
-    --card-foreground:      var(--ink);
-    --popover:              var(--surface);
-    --popover-foreground:   var(--ink);
-    --primary:              var(--accent);
-    --primary-foreground:   var(--accent-ink);
-    --secondary:            var(--surface-2);
-    --secondary-foreground: var(--ink);
-    --muted:                var(--surface-2);
-    --muted-foreground:     var(--ink-soft);
-    --destructive:          var(--bad);
-    --destructive-foreground: 98% 0.005 30;
-    --border:               var(--rule);
-    --input:                var(--rule-strong);
-    --ring:                 var(--accent);
-
-    /* Geometry — softer than shadcn default but not pillowy */
-    --radius: 0.625rem;
-    --radius-sm: 0.375rem;
-    --radius-lg: 1rem;
-
-    /* Type families (loaded in app/layout.tsx as next/font) */
-    --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
-    --font-body:    var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --font-mono:    var(--font-mono), ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
   }
-
+ 
   .dark {
-    /* Desk-lamp dark — warm low light, NOT glow-on-black */
-    --bg:           14% 0.014 60;
-    --surface:      18% 0.016 60;
-    --surface-2:    22% 0.018 60;
-    --surface-sunk: 11% 0.012 60;
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+ 
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+ 
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+ 
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+ 
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+ 
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+ 
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+ 
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
 
-    --ink:          95% 0.008 80;
-    --ink-soft:     78% 0.014 75;
-    --ink-faint:    62% 0.014 70;
-    --ink-mute:     48% 0.014 65;
-
-    --rule:         28% 0.020 65;
-    --rule-strong:  36% 0.024 65;
-
-    --accent:       76% 0.155 70;       /* warmer, glows under dim light */
-    --accent-hi:    82% 0.140 72;
-    --accent-deep:  62% 0.170 60;
-    --accent-ink:   12% 0.020 60;
-    --accent-soft:  28% 0.060 65;
-    --accent-glow:  35% 0.085 65;
-
-    --good:         70% 0.13 145;
-    --good-soft:    28% 0.05 150;
-    --warn:         78% 0.15 75;
-    --warn-soft:    32% 0.07 80;
-    --bad:          70% 0.16 28;
-    --bad-soft:     30% 0.07 30;
-
-    --destructive-foreground: 95% 0.008 30;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
   }
 }
-
-/* ============================================================
-   Base typography — generous, hierarchical, never flat
-   ============================================================ */
+ 
 @layer base {
   * {
-    border-color: oklch(var(--border));
+    @apply border-border;
   }
-
-  html {
-    color-scheme: light dark;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    font-feature-settings: "ss01", "cv01", "cv11";
-  }
-
   body {
-    background: oklch(var(--bg));
-    color: oklch(var(--ink));
-    font-family: var(--font-body);
-    font-feature-settings: "cv11", "ss01";
-    line-height: 1.55;
-  }
-
-  ::selection {
-    background: oklch(var(--accent-soft));
-    color: oklch(var(--ink));
-  }
-
-  /* Display headings use the serif. Tight tracking, expressive weights. */
-  h1, h2, h3, .font-display {
-    font-family: var(--font-display);
-    font-feature-settings: "ss01", "ss02";
-    letter-spacing: -0.022em;
-    line-height: 1.08;
-  }
-
-  h1 { font-weight: 400; font-variation-settings: "opsz" 144, "SOFT" 30; }
-  h2 { font-weight: 500; font-variation-settings: "opsz" 100, "SOFT" 30; }
-  h3 { font-weight: 500; font-variation-settings: "opsz" 60; letter-spacing: -0.018em; }
-
-  /* Sans for body / labels — keep tight tracking on headings only */
-  .font-body { font-family: var(--font-body); }
-  .font-mono { font-family: var(--font-mono); font-feature-settings: "tnum", "ss01"; }
-
-  /* Cap reading width by default for prose content */
-  .prose-cap { max-width: 68ch; }
-
-  /* Buttons & inputs inherit the body font tightly */
-  button, input, select, textarea {
-    font-family: inherit;
+    @apply bg-background text-foreground;
   }
 }
-
-/* ============================================================
-   Components — small reusable utilities
-   ============================================================ */
+/* Chat-specific styles */
 @layer components {
-  /* Chat scroll surfaces. Same idea as before, recolored. */
-  .chat-container { height: 100%; overflow: hidden; }
-  .chat-sidebar { min-height: 0; }
-  .chat-main { min-height: 0; height: 100%; }
+  .chat-container {
+    height: 100%; /* Use full available height from parent */
+    overflow: hidden;
+  }
+  
+  .chat-sidebar {
+    min-height: 0; /* Allow flex child to shrink */
+  }
+  
+  .chat-main {
+    min-height: 0; /* Allow flex child to shrink */
+    height: 100%;
+  }
+  
   .chat-messages {
     scrollbar-width: thin;
-    scrollbar-color: oklch(var(--rule-strong)) transparent;
+    scrollbar-color: #cbd5e0 #f7fafc;
   }
-  .chat-messages::-webkit-scrollbar { width: 6px; height: 6px; }
-  .chat-messages::-webkit-scrollbar-track { background: transparent; }
+  
+  .chat-messages::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .chat-messages::-webkit-scrollbar-track {
+    background: #f7fafc;
+  }
+  
   .chat-messages::-webkit-scrollbar-thumb {
-    background: oklch(var(--rule-strong));
-    border-radius: 999px;
+    background: #cbd5e0;
+    border-radius: 3px;
   }
+  
   .chat-messages::-webkit-scrollbar-thumb:hover {
-    background: oklch(var(--ink-faint));
-  }
-
-  /* Section rule — used in place of cards where a divider is enough */
-  .hairline {
-    height: 1px;
-    background: oklch(var(--rule));
-    border: 0;
-  }
-
-  /* "Notebook tab" — sits flush to its content with a hand-drawn underline */
-  .nb-tab {
-    position: relative;
-    padding: 0.5rem 0.875rem;
-    color: oklch(var(--ink-soft));
-    font-size: 0.875rem;
-    font-weight: 500;
-    transition: color 200ms cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .nb-tab:hover { color: oklch(var(--ink)); }
-  .nb-tab[data-state="active"] {
-    color: oklch(var(--ink));
-  }
-  .nb-tab[data-state="active"]::after {
-    content: "";
-    position: absolute;
-    inset: auto 0.5rem -1px 0.5rem;
-    height: 2px;
-    background: oklch(var(--accent));
-    border-radius: 2px;
-  }
-
-  /* Soft inset, used sparingly — never as a background everywhere */
-  .inset-panel {
-    background: oklch(var(--surface));
-    border: 1px solid oklch(var(--rule));
-    border-radius: var(--radius);
-  }
-
-  /* Numeric display — for token counts, scores, due-card counts */
-  .numeral {
-    font-family: var(--font-mono);
-    font-feature-settings: "tnum", "ss02";
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
-  }
-
-  /* Pill — small status tags */
-  .pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    padding: 0.125rem 0.5rem;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    line-height: 1.4;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-  }
-  .pill-accent { background: oklch(var(--accent-soft)); color: oklch(var(--accent-deep)); }
-  .pill-good   { background: oklch(var(--good-soft));   color: oklch(var(--good)); }
-  .pill-warn   { background: oklch(var(--warn-soft));   color: oklch(var(--warn) / 0.9); }
-  .pill-bad    { background: oklch(var(--bad-soft));    color: oklch(var(--bad)); }
-  .pill-mute   { background: oklch(var(--surface-2));   color: oklch(var(--ink-soft)); }
-
-  /* Sticky desk-shelf header — used by app routes */
-  .desk-shelf {
-    background: oklch(var(--bg) / 0.85);
-    backdrop-filter: saturate(180%) blur(8px);
-    -webkit-backdrop-filter: saturate(180%) blur(8px);
-    border-bottom: 1px solid oklch(var(--rule));
+    background: #a0aec0;
   }
 }
 
-/* ============================================================
-   AI typing indicator — kept, restyled with token color
-   ============================================================ */
-.typing { display: flex; align-items: center; gap: 4px; }
+/* Navigation improvements */
+@layer components {
+  .navigation-header {
+    height: 60px; /* Fixed header height */
+  }
+}
+
+/* Typing animation for AI loading state */
+.typing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .typing span {
-  width: 6px; height: 6px; border-radius: 999px;
-  background: oklch(var(--ink-faint));
-  animation: typing 1.4s infinite cubic-bezier(0.16, 1, 0.3, 1);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #9ca3af;
+  animation: typing 1.4s infinite ease-in-out;
 }
-.typing span:nth-child(1) { animation-delay: -0.32s; }
-.typing span:nth-child(2) { animation-delay: -0.16s; }
-.typing span:nth-child(3) { animation-delay: 0s; }
+
+.typing span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+.typing span:nth-child(3) {
+  animation-delay: 0s;
+}
+
 @keyframes typing {
-  0%, 80%, 100% { transform: scale(0.7); opacity: 0.4; }
-  40% { transform: scale(1); opacity: 1; }
+  0%, 80%, 100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
-/* ============================================================
-   Subtle transitions — exponential ease-out
-   ============================================================ */
-@layer utilities {
-  .ease-expo { transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
-  .ease-quart { transition-timing-function: cubic-bezier(0.25, 1, 0.5, 1); }
-}
-
+/* Responsive adjustments */
 @media (max-width: 768px) {
-  .chat-container { height: 100%; flex-direction: column; }
-  .chat-sidebar { display: none; }
-  .chat-main { width: 100%; height: 100%; }
+  .chat-container {
+    height: 100%;
+    flex-direction: column;
+  }
+  
+  .chat-sidebar {
+    display: none;
+  }
+  
+  .chat-main {
+    width: 100%;
+    height: 100%;
+  }
 }

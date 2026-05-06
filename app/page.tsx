@@ -1,195 +1,137 @@
 import LayoutClient from './layout-client';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { ArrowUpRight, BookOpen, Brain, Sparkles, Network } from 'lucide-react';
+import Image from 'next/image';
 
-/**
- * Landing — brand register.
- *
- * Editorial layout: oversized serif headline, generous whitespace, an
- * accent rule that scribes a horizontal line through the page (the only
- * saturated color above the fold).
- * Anti-references: gradient hero metric blocks, identical icon-card grids,
- * "Start free trial" SaaS energy.
- */
 export default function Home() {
   return (
     <LayoutClient>
-      <div className="bg-bg text-ink">
-        {/* ---------- Hero ---------- */}
-        <section className="relative px-5 sm:px-10 lg:px-16 pt-20 sm:pt-28 lg:pt-36 pb-24 lg:pb-36">
-          <div className="max-w-6xl">
-            <div className="numeral text-2xs uppercase tracking-[0.2em] text-ink-soft mb-8 flex items-center gap-3">
-              <span className="inline-block w-8 h-px bg-accent" />
-              StudyAI&nbsp;·&nbsp;v1
+      <div className="h-full overflow-y-auto bg-gray-50">
+        <div className="flex flex-col items-center">
+          <div className="max-w-6xl w-full px-4 py-6 sm:py-12 lg:py-24">
+            <div className="text-center mb-8 sm:mb-16">
+              <h1 className="text-3xl sm:text-4xl lg:text-6xl font-bold mb-4 sm:mb-6 text-slate-800 leading-tight">
+                Chat with Your Documents
+              </h1>
+              <p className="text-lg sm:text-xl lg:text-2xl text-slate-600 max-w-3xl mx-auto leading-relaxed">
+                Upload your files and ask questions about their content using AI
+              </p>
             </div>
 
-            <h1 className="font-display text-[clamp(2.75rem,9vw,7rem)] leading-[0.92] tracking-[-0.035em] text-ink">
-              Read deeper.
-              <br />
-              <span className="italic font-light text-ink-soft">Remember longer.</span>
-            </h1>
-
-            <p className="mt-10 max-w-xl text-lg sm:text-xl text-ink-soft leading-relaxed prose-cap">
-              A study companion that turns your PDFs, slides, and lecture
-              transcripts into a private library you can chat with, quiz
-              yourself on, and revisit on a spaced-repetition schedule.
-            </p>
-
-            <div className="mt-12 flex flex-wrap items-center gap-3">
-              <Button asChild size="lg" variant="ink" className="group">
-                <Link href="/files">
-                  Start studying
-                  <ArrowUpRight className="h-4 w-4 -mr-1 transition-transform duration-300 ease-out-expo group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                </Link>
-              </Button>
-              <Button asChild size="lg" variant="ghost">
-                <Link href="/explore">Browse public decks</Link>
-              </Button>
-            </div>
-          </div>
-
-          <div
-            aria-hidden
-            className="absolute left-0 right-0 bottom-0 h-px bg-rule origin-left animate-rule-in"
-          />
-        </section>
-
-        {/* ---------- Methodology — three columns, no card chrome ---------- */}
-        <section className="px-5 sm:px-10 lg:px-16 py-20 lg:py-28">
-          <div className="max-w-6xl">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-10 gap-y-14">
-              <div className="lg:col-span-4">
-                <p className="numeral text-2xs uppercase tracking-[0.2em] text-accent-deep">
-                  How it works
-                </p>
-                <h2 className="font-display text-3xl sm:text-4xl mt-4 leading-[1.04]">
-                  Three motions.
-                  <br />
-                  <span className="italic font-light text-ink-soft">No more, no fewer.</span>
-                </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 lg:gap-12 mb-8 sm:mb-16">
+              <div className="bg-white p-4 sm:p-6 lg:p-8 rounded-lg shadow-md">
+                <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4 text-slate-800">Supported Features</h2>
+                <ul className="space-y-2 sm:space-y-3 text-slate-600 text-sm sm:text-base">
+                  <li className="flex items-start">
+                    <svg className="h-5 w-5 sm:h-6 sm:w-6 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Upload and process <strong>PDF</strong>, <strong>PowerPoint</strong>, <strong>Markdown</strong>, and <strong>Text</strong> files</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="h-5 w-5 sm:h-6 sm:w-6 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Automatic document processing with AI embeddings</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="h-5 w-5 sm:h-6 sm:w-6 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Chat with AI about specific documents</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="h-5 w-5 sm:h-6 sm:w-6 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>View conversation history for each document</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="h-5 w-5 sm:h-6 sm:w-6 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Generate flashcards, quizzes, and summaries</span>
+                  </li>
+                  <li className="flex items-start">
+                    <svg className="h-5 w-5 sm:h-6 sm:w-6 text-green-500 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Track study progress with analytics</span>
+                  </li>
+                </ul>
               </div>
 
-              <ol className="lg:col-span-8 grid grid-cols-1 sm:grid-cols-3 gap-x-8 gap-y-10 lg:pt-3">
-                <Step n="01" title="Bring it in">
-                  Upload a PDF, paste a URL, or import a YouTube transcript.
-                  Vision-LLM OCR catches the scanned ones.
-                </Step>
-                <Step n="02" title="Make it stick">
-                  Auto-generate flashcards, cloze deletions, short-answer
-                  prompts, and a concept map. Grade yourself; the schedule
-                  takes care of the rest.
-                </Step>
-                <Step n="03" title="Ask hard questions">
-                  Chat across one document or ten at once. Every answer
-                  cites its source chunk.
-                </Step>
-              </ol>
+              <div className="bg-white p-4 sm:p-6 lg:p-8 rounded-lg shadow-md">
+                <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4 text-slate-800">Get Started</h2>
+                <div className="space-y-4 sm:space-y-6">
+                  <div className="flex items-start">
+                    <div className="bg-blue-500 text-white rounded-full h-7 w-7 sm:h-8 sm:w-8 flex items-center justify-center mr-3 flex-shrink-0 text-sm sm:text-base font-bold">
+                      1
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm sm:text-base">Upload your documents</h3>
+                      <p className="text-slate-600 text-sm sm:text-base">Upload PDF, PowerPoint, Markdown or Text files to the system</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-start">
+                    <div className="bg-blue-500 text-white rounded-full h-7 w-7 sm:h-8 sm:w-8 flex items-center justify-center mr-3 flex-shrink-0 text-sm sm:text-base font-bold">
+                      2
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm sm:text-base">Wait for processing</h3>
+                      <p className="text-slate-600 text-sm sm:text-base">The system will automatically extract and analyze the content</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-start">
+                    <div className="bg-blue-500 text-white rounded-full h-7 w-7 sm:h-8 sm:w-8 flex items-center justify-center mr-3 flex-shrink-0 text-sm sm:text-base font-bold">
+                      3
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm sm:text-base">Chat and study</h3>
+                      <p className="text-slate-600 text-sm sm:text-base">Ask questions, review flashcards, take quizzes, and track your progress</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        </section>
 
-        <hr className="hairline" />
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center max-w-md mx-auto sm:max-w-none">
+              <Link 
+                href="/files" 
+                className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-6 sm:px-8 py-3 rounded-md text-base sm:text-lg font-medium text-center transition-colors"
+              >
+                📁 Upload Files
+              </Link>
+              <Link 
+                href="/chat?new=true" 
+                className="w-full sm:w-auto bg-slate-700 hover:bg-slate-800 text-white px-6 sm:px-8 py-3 rounded-md text-base sm:text-lg font-medium text-center transition-colors"
+              >
+                💬 Start Chatting
+              </Link>
+            </div>
 
-        {/* ---------- Capabilities — text-led, not icon-grid ---------- */}
-        <section className="px-5 sm:px-10 lg:px-16 py-20 lg:py-28">
-          <div className="max-w-6xl">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-y-14 gap-x-10">
-              <header className="lg:col-span-5">
-                <p className="numeral text-2xs uppercase tracking-[0.2em] text-accent-deep">
-                  Capabilities
-                </p>
-                <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl mt-4">
-                  Built for the way
-                  <br />
-                  <span className="italic font-light text-ink-soft">studying actually goes.</span>
-                </h2>
-              </header>
-
-              <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-10">
-                <Feature icon={<BookOpen className="h-4 w-4" />} title="Cited answers">
-                  Every claim points back to a chunk on a page. No mystery,
-                  no hallucinations dressed up as facts.
-                </Feature>
-                <Feature icon={<Brain className="h-4 w-4" />} title="Spaced repetition">
-                  FSRS-4.5 scheduling. Cards you got wrong come back when
-                  you&apos;re about to forget them.
-                </Feature>
-                <Feature icon={<Network className="h-4 w-4" />} title="Concept maps">
-                  A graph of every idea in a document, with prerequisite
-                  edges and weak-spot detection.
-                </Feature>
-                <Feature icon={<Sparkles className="h-4 w-4" />} title="Hybrid retrieval">
-                  BM25 plus dense vectors, fused with reciprocal rank.
-                  Finds your exact term and the related chunks too.
-                </Feature>
+            {/* Quick Actions for Mobile */}
+            <div className="mt-8 sm:hidden">
+              <h3 className="text-lg font-bold text-slate-800 mb-4 text-center">Quick Actions</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <Link 
+                  href="/analytics" 
+                  className="bg-purple-100 hover:bg-purple-200 text-purple-800 p-3 rounded-lg text-center text-sm font-medium transition-colors"
+                >
+                  📊 Analytics
+                </Link>
+                <Link 
+                  href="/study" 
+                  className="bg-green-100 hover:bg-green-200 text-green-800 p-3 rounded-lg text-center text-sm font-medium transition-colors"
+                >
+                  📚 Study Mode
+                </Link>
               </div>
             </div>
           </div>
-        </section>
-
-        {/* ---------- Manifesto block ---------- */}
-        <section className="px-5 sm:px-10 lg:px-16 py-24 lg:py-36 bg-surface border-y border-rule">
-          <div className="max-w-3xl">
-            <p className="font-display text-2xl sm:text-3xl lg:text-[2.5rem] leading-[1.18] text-ink">
-              We don&apos;t believe in{' '}
-              <span className="italic text-ink-soft">&ldquo;AI does it for you.&rdquo;</span>
-              {' '}Studying still requires you. The tool&apos;s job is to clear
-              the friction, not the work.
-            </p>
-            <p className="mt-10 text-sm uppercase tracking-[0.18em] numeral text-ink-soft">
-              The StudyAI team
-            </p>
-          </div>
-        </section>
-
-        {/* ---------- Final CTA ---------- */}
-        <section className="px-5 sm:px-10 lg:px-16 py-24 lg:py-32">
-          <div className="max-w-6xl flex flex-col lg:flex-row lg:items-end lg:justify-between gap-10">
-            <div>
-              <h2 className="font-display text-3xl sm:text-4xl lg:text-5xl leading-[1.04]">
-                Open a document.
-                <br />
-                <span className="italic font-light text-ink-soft">See where it takes you.</span>
-              </h2>
-            </div>
-            <div className="flex gap-3">
-              <Button asChild size="xl" variant="ink" className="group">
-                <Link href="/files">
-                  Get started
-                  <ArrowUpRight className="h-4 w-4 -mr-1 transition-transform duration-300 ease-out-expo group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                </Link>
-              </Button>
-            </div>
-          </div>
-        </section>
+        </div>
       </div>
     </LayoutClient>
-  );
-}
-
-function Step({ n, title, children }: { n: string; title: string; children: React.ReactNode }) {
-  return (
-    <li className="group">
-      <div className="numeral text-2xs tracking-[0.2em] text-accent-deep mb-3">{n}</div>
-      <h3 className="font-display text-xl mb-2.5 leading-tight">{title}</h3>
-      <p className="text-sm text-ink-soft leading-relaxed prose-cap">{children}</p>
-    </li>
-  );
-}
-
-function Feature({
-  icon, title, children,
-}: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="flex items-center gap-2.5 mb-3">
-        <span className="inline-flex items-center justify-center h-7 w-7 rounded-md bg-accent-soft text-accent-deep">
-          {icon}
-        </span>
-        <h3 className="font-display text-lg leading-none">{title}</h3>
-      </div>
-      <p className="text-sm text-ink-soft leading-relaxed">{children}</p>
-    </div>
   );
 }
