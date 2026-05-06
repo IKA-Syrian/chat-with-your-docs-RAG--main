@@ -21,7 +21,18 @@ interface DueCard {
   front: string;
   back: string;
   card_index: number | null;
+  card_type?: 'basic' | 'cloze' | 'short_answer';
+  cloze_text?: string | null;
+  expected_answer?: string | null;
   review: null | { due_at: string; reps: number };
+}
+
+/** Phase 3 #7 — render Anki-style cloze format with blanks. */
+function renderCloze(text: string, reveal: boolean) {
+  // Strip optional hint after the "::". Example: {{c1::Paris::capital city}}
+  const re = /\{\{c\d+::([^}|:]+)(?:::[^}]+)?\}\}/g;
+  if (reveal) return text.replace(re, (_, ans) => `**${ans}**`);
+  return text.replace(re, () => '_____');
 }
 
 interface Props {
@@ -68,6 +79,18 @@ export default function ReviewQueue({ documentId }: Props) {
   }, [documentId]);
 
   const current = cards[0];
+  const cardType = current?.card_type || 'basic';
+  const [shortAnswerInput, setShortAnswerInput] = useState('');
+  const [shortAnswerResult, setShortAnswerResult] = useState<null | {
+    score: number; rating_suggested: 1 | 2 | 3 | 4; feedback: string;
+    missing_keywords: string[]; matched_keywords: string[];
+  }>(null);
+
+  // Reset per-card transient state whenever the head of the queue changes.
+  useEffect(() => {
+    setShortAnswerInput('');
+    setShortAnswerResult(null);
+  }, [current?.id]);
 
   const grade = async (rating: 1 | 2 | 3 | 4) => {
     if (!current || submitting) return;
@@ -79,6 +102,20 @@ export default function ReviewQueue({ documentId }: Props) {
       setShowBack(false);
     } catch (err) {
       console.error('Failed to record review:', err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitShortAnswer = async () => {
+    if (!current || submitting || !shortAnswerInput.trim()) return;
+    setSubmitting(true);
+    try {
+      const result = await apiClient.gradeShortAnswer(current.id, shortAnswerInput);
+      setShortAnswerResult(result);
+      setShowBack(true);
+    } catch (err) {
+      console.error('Short-answer grading failed:', err);
     } finally {
       setSubmitting(false);
     }
@@ -124,41 +161,111 @@ export default function ReviewQueue({ documentId }: Props) {
         <span className="text-xs text-gray-500">{cards.length} card{cards.length === 1 ? '' : 's'} due</span>
       </div>
 
-      <Card
-        className="min-h-[180px] cursor-pointer"
-        onClick={() => setShowBack(v => !v)}
-      >
-        <CardContent className="h-full flex items-center justify-center p-6">
-          <div className="text-center w-full">
-            <p className="text-xs uppercase tracking-wide text-blue-600 mb-2">
-              {showBack ? 'Answer' : 'Question'}
-            </p>
-            <div className="text-lg text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
-              {showBack ? current!.back : current!.front}
+      {cardType === 'cloze' && current!.cloze_text ? (
+        // CLOZE — show text with blanks; tap to reveal answers.
+        <Card className="min-h-[180px] cursor-pointer" onClick={() => setShowBack(v => !v)}>
+          <CardContent className="h-full flex items-center justify-center p-6">
+            <div className="text-center w-full">
+              <p className="text-xs uppercase tracking-wide text-purple-600 mb-2">Cloze</p>
+              <div className="text-lg text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
+                {/* Use simple **bold** rendering for revealed clozes */}
+                {renderCloze(current!.cloze_text, showBack).split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+                  /^\*\*[^*]+\*\*$/.test(part)
+                    ? <strong key={i} className="text-blue-700">{part.slice(2, -2)}</strong>
+                    : <span key={i}>{part}</span>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-3">
+                {showBack ? 'Rate your recall below' : 'Tap or press Space to reveal'}
+              </p>
             </div>
-            <p className="text-xs text-gray-400 mt-3">
-              {showBack ? 'Rate your recall below' : 'Tap or press Space to reveal'}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : cardType === 'short_answer' ? (
+        // SHORT-ANSWER — input box; submit grades via LLM.
+        <Card className="min-h-[180px]">
+          <CardContent className="p-6 space-y-3">
+            <p className="text-xs uppercase tracking-wide text-orange-600">Short answer</p>
+            <div className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
+              {current!.front}
+            </div>
+            <textarea
+              value={shortAnswerInput}
+              onChange={e => setShortAnswerInput(e.target.value)}
+              disabled={submitting || !!shortAnswerResult}
+              placeholder="Type your answer…"
+              className="w-full min-h-[80px] border rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {!shortAnswerResult ? (
+              <Button
+                onClick={submitShortAnswer}
+                disabled={submitting || !shortAnswerInput.trim()}
+                className="w-full"
+              >
+                {submitting ? 'Grading…' : 'Submit answer'}
+              </Button>
+            ) : (
+              <div className={`p-3 rounded text-sm ${
+                shortAnswerResult.score >= 0.7 ? 'bg-green-50 border border-green-200' :
+                shortAnswerResult.score >= 0.4 ? 'bg-yellow-50 border border-yellow-200' :
+                'bg-red-50 border border-red-200'
+              }`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold">Score: {(shortAnswerResult.score * 100).toFixed(0)}%</span>
+                  <span className="text-xs text-gray-500">Suggests: {RATING_LABELS[shortAnswerResult.rating_suggested - 1]?.label}</span>
+                </div>
+                <p className="text-gray-700">{shortAnswerResult.feedback}</p>
+                {shortAnswerResult.missing_keywords?.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Missing: {shortAnswerResult.missing_keywords.join(', ')}
+                  </p>
+                )}
+                <details className="mt-2 text-xs text-gray-600">
+                  <summary className="cursor-pointer">Show model answer</summary>
+                  <p className="mt-1 whitespace-pre-wrap">{current!.expected_answer || current!.back}</p>
+                </details>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        // BASIC — original front/back flip card.
+        <Card className="min-h-[180px] cursor-pointer" onClick={() => setShowBack(v => !v)}>
+          <CardContent className="h-full flex items-center justify-center p-6">
+            <div className="text-center w-full">
+              <p className="text-xs uppercase tracking-wide text-blue-600 mb-2">
+                {showBack ? 'Answer' : 'Question'}
+              </p>
+              <div className="text-lg text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
+                {showBack ? current!.back : current!.front}
+              </div>
+              <p className="text-xs text-gray-400 mt-3">
+                {showBack ? 'Rate your recall below' : 'Tap or press Space to reveal'}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Progress
         value={initialTotal === 0 ? 0 : ((initialTotal - cards.length) / initialTotal) * 100}
       />
 
       <div className="grid grid-cols-4 gap-2">
-        {RATING_LABELS.map(r => (
-          <Button
-            key={r.rating}
-            disabled={!showBack || submitting}
-            onClick={() => grade(r.rating)}
-            className={r.color + ' disabled:opacity-40'}
-          >
-            <span className="font-semibold">{r.label}</span>
-            <span className="ml-2 text-xs opacity-80">[{r.key}]</span>
-          </Button>
-        ))}
+        {RATING_LABELS.map(r => {
+          const enabled = cardType === 'short_answer' ? !!shortAnswerResult : showBack;
+          return (
+            <Button
+              key={r.rating}
+              disabled={!enabled || submitting}
+              onClick={() => grade(r.rating)}
+              className={r.color + ' disabled:opacity-40'}
+            >
+              <span className="font-semibold">{r.label}</span>
+              <span className="ml-2 text-xs opacity-80">[{r.key}]</span>
+            </Button>
+          );
+        })}
       </div>
       <p className="text-xs text-gray-500 text-center">
         Shortcuts: Space flip · 1 Again · 2 Hard · 3 Good · 4 Easy

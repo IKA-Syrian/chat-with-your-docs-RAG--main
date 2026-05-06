@@ -17,6 +17,7 @@ import { useSessionTracking } from '@/lib/hooks/use-session-tracking'
 import { useKeyboardShortcuts, formatShortcut, type Shortcut } from '@/lib/hooks/use-keyboard-shortcuts'
 import ExportMenu from '@/components/ui/export-menu'
 import ReviewQueue from '@/components/ui/review-queue'
+import MistakeJournal from '@/components/ui/mistake-journal'
 
 // Types matching our backend responses
 interface DocumentDetail {
@@ -772,7 +773,7 @@ export default function StudyPage() {
                 flashcards={documentDetail?.flashcards?.flashcards || documentDetail?.flashcards || []}
                 quiz={documentDetail?.quiz}
               />
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="summary" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <BookOpen className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="hidden sm:inline">Summary</span>
@@ -787,6 +788,11 @@ export default function StudyPage() {
                   <Brain className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="hidden sm:inline">Quiz</span>
                   <span className="sm:hidden">🧠</span>
+                </TabsTrigger>
+                <TabsTrigger value="mistakes" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <XCircle className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden sm:inline">Mistakes</span>
+                  <span className="sm:hidden">❌</span>
                 </TabsTrigger>
               </TabsList>
 
@@ -1125,6 +1131,11 @@ export default function StudyPage() {
                     </Card>
                   )}
                 </div>
+              </TabsContent>
+
+              {/* Phase 3 #9 — Mistake journal tab */}
+              <TabsContent value="mistakes">
+                <MistakeJournal documentId={documentId} />
               </TabsContent>
             </Tabs>
           )}

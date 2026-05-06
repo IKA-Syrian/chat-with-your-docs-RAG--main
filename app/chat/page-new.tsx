@@ -13,6 +13,7 @@ import LayoutClient from '../layout-client';
 import MarkdownMessage from '@/components/ui/markdown-message';
 import { useSessionTracking } from '@/lib/hooks/use-session-tracking';
 import { useKeyboardShortcuts, formatShortcut, type Shortcut } from '@/lib/hooks/use-keyboard-shortcuts';
+import DocPicker from '@/components/ui/doc-picker';
 
 interface Usage {
   prompt_tokens?: number;
@@ -99,6 +100,14 @@ export default function ChatPageNew() {
   const [explainMode, setExplainMode] = useState<ExplainMode>('default');
   const [expandedSourceMsg, setExpandedSourceMsg] = useState<string | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  // Phase 3 #17: extra docs in scope (initial doc from URL is always first)
+  const [scopeDocIds, setScopeDocIds] = useState<string[]>(documentId ? [documentId] : []);
+  useEffect(() => {
+    if (documentId && !scopeDocIds.includes(documentId)) {
+      setScopeDocIds([documentId, ...scopeDocIds].slice(0, 10));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId]);
 
   // Persist explain-mode preference
   useEffect(() => {
@@ -294,14 +303,15 @@ export default function ChatPageNew() {
     recordActivity('chat');
 
     try {
-      // Include provider, model, and explain mode in the chat request
+      // Include provider, model, explain mode, and the multi-doc scope.
       const response = await apiClient.chat(
         input,
         currentConversationId || undefined,
         documentId || undefined,
         selectedProvider || undefined,
         selectedModel || undefined,
-        explainMode
+        explainMode,
+        scopeDocIds
       );
 
       // Store the conversation ID if this is a new conversation
@@ -901,8 +911,18 @@ export default function ChatPageNew() {
               </div>
             )}
             
+            {/* Phase 3 #17: multi-document scope picker */}
+            <div className="border-t bg-white px-3 sm:px-4 pt-3">
+              <DocPicker
+                selectedIds={scopeDocIds}
+                onChange={setScopeDocIds}
+                primaryId={documentId}
+                maxDocs={10}
+              />
+            </div>
+
             {/* Mobile-Optimized Input form */}
-            <div className="border-t p-3 sm:p-4 bg-white">
+            <div className="p-3 sm:p-4 bg-white">
               <form onSubmit={handleSubmit} className="flex gap-2">
                 <Input
                   ref={inputRef}

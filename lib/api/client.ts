@@ -457,7 +457,8 @@ class ApiClient {
     documentId?: string,
     provider?: string,
     model?: string,
-    explainMode?: 'default' | 'eli5' | 'student' | 'professor'
+    explainMode?: 'default' | 'eli5' | 'student' | 'professor',
+    documentIds?: string[]
   ) {
     const body: any = {
       message,
@@ -465,7 +466,11 @@ class ApiClient {
     };
 
     if (conversationId) body.conversation_id = conversationId;
-    if (documentId) body.document_id = documentId;
+    if (Array.isArray(documentIds) && documentIds.length > 0) {
+      body.document_ids = documentIds.slice(0, 10);
+    } else if (documentId) {
+      body.document_id = documentId;
+    }
     if (provider) body.provider = provider;
     if (model) body.model = model;
     if (explainMode && explainMode !== 'default') body.explain_mode = explainMode;
@@ -583,6 +588,21 @@ class ApiClient {
     });
   }
 
+  // ----- Phase 3 #15: URL / YouTube ingestion -----
+  async ingestFromUrl(url: string, title?: string) {
+    return this.request<{
+      id: string;
+      name: string;
+      source: 'web' | 'youtube';
+      url: string;
+      text_length: number;
+      preview: string;
+    }>('/documents/from-url', {
+      method: 'POST',
+      body: JSON.stringify({ url, title })
+    });
+  }
+
   // ----- Phase 2 #6: spaced repetition (FSRS) -----
   async getDueFlashcards(opts: { documentId?: string; limit?: number } = {}) {
     const qs = new URLSearchParams();
@@ -622,6 +642,60 @@ class ApiClient {
     return this.request<{ due_now: number; reviewed_today: number; total_cards: number }>(
       '/flashcards/stats'
     );
+  }
+
+  // ----- Phase 3 #7: short-answer grading -----
+  async gradeShortAnswer(flashcardId: string, userAnswer: string) {
+    return this.request<{
+      score: number;
+      rating_suggested: 1 | 2 | 3 | 4;
+      feedback: string;
+      matched_keywords: string[];
+      missing_keywords: string[];
+    }>(`/flashcards/${flashcardId}/grade-answer`, {
+      method: 'POST',
+      body: JSON.stringify({ user_answer: userAnswer })
+    });
+  }
+
+  // ----- Phase 3 #9: mistake journal -----
+  async getMistakes(opts: { documentId?: string; includeResolved?: boolean; limit?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (opts.documentId) qs.set('document_id', opts.documentId);
+    if (opts.includeResolved) qs.set('include_resolved', 'true');
+    if (opts.limit) qs.set('limit', String(opts.limit));
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return this.request<{
+      total: number;
+      unresolved: number;
+      mistakes: Array<{
+        id: string;
+        source_kind: 'quiz' | 'flashcard' | 'short_answer';
+        question: string;
+        user_answer: string | null;
+        expected_answer: string | null;
+        source_chunk_excerpt: string | null;
+        document_id: string | null;
+        document_name: string | null;
+        ai_explanation: string | null;
+        details: any;
+        created_at: string;
+        resolved: boolean;
+      }>;
+    }>(`/mistakes${suffix}`);
+  }
+
+  async resolveMistake(id: string, resolved: boolean = true) {
+    return this.request<{ success: boolean }>(`/mistakes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ resolved })
+    });
+  }
+
+  async explainMistake(id: string) {
+    return this.request<{ explanation: string }>(`/mistakes/${id}/explain`, {
+      method: 'POST'
+    });
   }
 
   // Health check

@@ -9,7 +9,7 @@ import { useAuth } from '@/lib/api/auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { Upload, BookOpen, Brain, Target, TrendingUp, Loader2, MessageSquare, GraduationCap, FileText, Calendar, Trash2, MoreVertical } from 'lucide-react';
+import { Upload, BookOpen, Brain, Target, TrendingUp, Loader2, MessageSquare, GraduationCap, FileText, Calendar, Trash2, MoreVertical, Link2, Youtube } from 'lucide-react';
 import LayoutClient from '../layout-client';
 import { useSessionTracking } from '@/lib/hooks/use-session-tracking';
 
@@ -18,6 +18,8 @@ export default function FilesPage() {
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [expandedDocument, setExpandedDocument] = useState<string | null>(null);
+  const [importUrl, setImportUrl] = useState('');
+  const [importing, setImporting] = useState(false);
   const queryClient = useQueryClient();
 
   // Session tracking for analytics
@@ -76,6 +78,31 @@ export default function FilesPage() {
       });
     },
   });
+
+  // Phase 3 #15: import a URL (web page or YouTube transcript)
+  const handleImportUrl = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const url = importUrl.trim();
+    if (!url || importing) return;
+    setImporting(true);
+    try {
+      const response = await apiClient.ingestFromUrl(url);
+      toast({
+        title: 'URL imported',
+        description: `${response.source === 'youtube' ? 'YouTube transcript' : 'Web page'} added: ${response.name}`,
+      });
+      setImportUrl('');
+      queryClient.invalidateQueries({ queryKey: ['documents'] });
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Import failed',
+        description: error instanceof Error ? error.message : 'Failed to import URL',
+      });
+    } finally {
+      setImporting(false);
+    }
+  };
 
   // Handle file upload
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -239,6 +266,38 @@ export default function FilesPage() {
                   </div>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Phase 3 #15: Import from URL or YouTube */}
+          <Card>
+            <CardHeader className="pb-4 sm:pb-6">
+              <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+                <Link2 className="h-4 w-4 sm:h-5 sm:w-5" />
+                Import from URL
+              </CardTitle>
+              <CardDescription className="text-sm flex items-center gap-2">
+                Paste a web page or <Youtube className="h-3.5 w-3.5 text-red-500" /> YouTube link — we'll extract the text or transcript.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleImportUrl} className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  type="url"
+                  placeholder="https://… or https://youtube.com/watch?v=…"
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  disabled={importing}
+                  className="flex-1 text-sm"
+                />
+                <Button type="submit" disabled={importing || !importUrl.trim()} className="flex items-center gap-2">
+                  {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                  {importing ? 'Importing…' : 'Import'}
+                </Button>
+              </form>
+              <p className="text-xs text-gray-500 mt-2">
+                Tip: only public pages and videos with captions work today.
+              </p>
             </CardContent>
           </Card>
 
