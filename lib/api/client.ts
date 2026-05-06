@@ -698,6 +698,144 @@ class ApiClient {
     });
   }
 
+  // ----- Phase 4 #21: knowledge graph -----
+  async getKnowledgeGraph(documentId: string) {
+    return this.request<{
+      document_id: string;
+      nodes: Array<{ id: string; label: string; summary: string; importance: number }>;
+      edges: Array<{ source: string; target: string; type: 'prerequisite' | 'related' | 'example_of' | 'contradicts'; label: string | null }>;
+      node_count: number;
+      edge_count: number;
+      provider: string | null;
+      model: string | null;
+      generated_at: string;
+    }>(`/documents/${documentId}/knowledge-graph`);
+  }
+
+  async generateKnowledgeGraph(documentId: string, opts: { provider?: string; model?: string; forceRegenerate?: boolean } = {}) {
+    return this.request<{
+      document_id: string;
+      nodes: any[];
+      edges: any[];
+      node_count: number;
+      edge_count: number;
+      cached: boolean;
+    }>(`/documents/${documentId}/knowledge-graph`, {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: opts.provider,
+        model: opts.model,
+        force_regenerate: opts.forceRegenerate
+      })
+    });
+  }
+
+  async getWeakNodes(documentId: string) {
+    return this.request<{
+      weak_nodes: Array<{ id: string; label: string; struggle_score: number; hits: number }>;
+    }>(`/documents/${documentId}/knowledge-graph/weak-nodes`);
+  }
+
+  // ----- Phase 4 #22: sharing -----
+  async createInvite(documentId: string, permission: 'read' | 'study' | 'edit', emailHint?: string) {
+    return this.request<{
+      token: string;
+      url: string;
+      permission: 'read' | 'study' | 'edit';
+      expires_at: string;
+    }>(`/documents/${documentId}/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ permission, email_hint: emailHint })
+    });
+  }
+
+  async listShares(documentId: string) {
+    return this.request<{
+      shares: Array<{ shared_with_user_id: string; permission: string; granted_at: string }>;
+      invites: Array<{ token: string; permission: string; email_hint: string | null; expires_at: string; created_at: string; url: string }>;
+    }>(`/documents/${documentId}/shares`);
+  }
+
+  async revokeShare(documentId: string, userId: string) {
+    return this.request<{ success: boolean }>(`/documents/${documentId}/shares/${userId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async cancelInvite(documentId: string, token: string) {
+    return this.request<{ success: boolean }>(`/documents/${documentId}/invites/${encodeURIComponent(token)}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async redeemInvite(token: string) {
+    return this.request<{ success: boolean; document_id: string; permission: string }>(`/invites/${encodeURIComponent(token)}/redeem`, {
+      method: 'POST'
+    });
+  }
+
+  // ----- Phase 4 #23: public deck library -----
+  async exploreDecks(opts: { tag?: string; q?: string; sort?: 'upvotes' | 'recent'; limit?: number; offset?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (opts.tag) qs.set('tag', opts.tag);
+    if (opts.q) qs.set('q', opts.q);
+    if (opts.sort) qs.set('sort', opts.sort);
+    if (opts.limit) qs.set('limit', String(opts.limit));
+    if (opts.offset) qs.set('offset', String(opts.offset));
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return this.request<{
+      decks: Array<{
+        id: string;
+        title: string;
+        description: string | null;
+        tags: string[];
+        upvotes_count: number;
+        published_at: string | null;
+      }>;
+      total: number | null;
+      limit: number;
+      offset: number;
+    }>(`/explore${suffix}`);
+  }
+
+  async forkDeck(documentId: string) {
+    return this.request<{ document_id: string }>(`/explore/${documentId}/fork`, {
+      method: 'POST'
+    });
+  }
+
+  async upvoteDeck(documentId: string) {
+    return this.request<{ success: boolean }>(`/explore/${documentId}/upvote`, {
+      method: 'POST'
+    });
+  }
+
+  async unupvoteDeck(documentId: string) {
+    return this.request<{ success: boolean }>(`/explore/${documentId}/upvote`, {
+      method: 'DELETE'
+    });
+  }
+
+  async publishDocument(documentId: string, opts: { title?: string; description?: string; tags?: string[] } = {}) {
+    return this.request<{
+      success: boolean;
+      published: boolean;
+      published_at: string;
+      published_title: string | null;
+      published_description: string | null;
+      tags: string[];
+    }>(`/explore/publish/${documentId}`, {
+      method: 'POST',
+      body: JSON.stringify(opts)
+    });
+  }
+
+  async unpublishDocument(documentId: string) {
+    return this.request<{ success: boolean }>(`/explore/publish/${documentId}`, {
+      method: 'DELETE'
+    });
+  }
+
   // Health check
   async healthCheck() {
     return this.request<{

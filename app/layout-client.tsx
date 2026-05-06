@@ -46,6 +46,12 @@ export default function LayoutClient({ children }: PropsWithChildren) {
                   >
                     Analytics
                   </Link>
+                  <Link
+                    href="/explore"
+                    className="py-3 px-3 cursor-pointer hover:bg-slate-700 font-medium text-sm"
+                  >
+                    Explore
+                  </Link>
                 </div>
                 
                 {/* User info */}
@@ -148,6 +154,13 @@ export default function LayoutClient({ children }: PropsWithChildren) {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 📊 Analytics
+              </Link>
+              <Link
+                href="/explore"
+                className="block px-3 py-2 text-sm font-medium hover:bg-slate-600 rounded-md"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                🌍 Explore
               </Link>
               <div className="px-3 py-2 border-t border-slate-600 mt-2 pt-2">
                 <div className="text-xs text-slate-300 mb-2">{user.email}</div>

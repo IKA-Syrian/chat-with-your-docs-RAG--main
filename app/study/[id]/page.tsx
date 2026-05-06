@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { BookOpen, Brain, Target, ArrowLeft, Loader2, RefreshCw, Settings, ChevronDown, CheckCircle, XCircle, Clock } from "lucide-react"
+import { BookOpen, Brain, Target, ArrowLeft, Loader2, RefreshCw, Settings, ChevronDown, CheckCircle, XCircle, Clock, Share2, Globe } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -18,6 +18,9 @@ import { useKeyboardShortcuts, formatShortcut, type Shortcut } from '@/lib/hooks
 import ExportMenu from '@/components/ui/export-menu'
 import ReviewQueue from '@/components/ui/review-queue'
 import MistakeJournal from '@/components/ui/mistake-journal'
+import KnowledgeGraphView from '@/components/ui/knowledge-graph-view'
+import ShareDialog from '@/components/ui/share-dialog'
+import PublishDialog from '@/components/ui/publish-dialog'
 
 // Types matching our backend responses
 interface DocumentDetail {
@@ -380,6 +383,9 @@ export default function StudyPage() {
 
   // Feature 3: Keyboard shortcuts on the study page
   const [showShortcuts, setShowShortcuts] = useState(false);
+  // Phase 4 #22 / #23 dialogs
+  const [showShare, setShowShare] = useState(false);
+  const [showPublish, setShowPublish] = useState(false);
   const studyShortcuts: Shortcut[] = [
     { key: ' ', description: 'Flip current flashcard', handler: () => flipCard() },
     { key: 'j', description: 'Next flashcard', handler: () => nextCard() },
@@ -513,10 +519,32 @@ export default function StudyPage() {
                   Chat
                 </Button>
 
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowShare(true)}
+                  className="flex items-center gap-2"
+                  title="Share this document"
+                >
+                  <Share2 className="h-4 w-4" />
+                  <span className="hidden sm:inline">Share</span>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowPublish(true)}
+                  className="flex items-center gap-2"
+                  title="Publish publicly"
+                >
+                  <Globe className="h-4 w-4" />
+                  <span className="hidden sm:inline">Publish</span>
+                </Button>
+
                 {hasAnyEducationalContent && providers.length > 0 && (
                   <>
                     <Button
-                      variant="outline" 
+                      variant="outline"
                       size="sm"
                       onClick={() => setShowSettings(!showSettings)}
                       className="flex items-center gap-2"
@@ -773,7 +801,7 @@ export default function StudyPage() {
                 flashcards={documentDetail?.flashcards?.flashcards || documentDetail?.flashcards || []}
                 quiz={documentDetail?.quiz}
               />
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="summary" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <BookOpen className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="hidden sm:inline">Summary</span>
@@ -793,6 +821,11 @@ export default function StudyPage() {
                   <XCircle className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="hidden sm:inline">Mistakes</span>
                   <span className="sm:hidden">❌</span>
+                </TabsTrigger>
+                <TabsTrigger value="map" className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                  <BookOpen className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden sm:inline">Map</span>
+                  <span className="sm:hidden">🕸️</span>
                 </TabsTrigger>
               </TabsList>
 
@@ -1137,8 +1170,28 @@ export default function StudyPage() {
               <TabsContent value="mistakes">
                 <MistakeJournal documentId={documentId} />
               </TabsContent>
+
+              {/* Phase 4 #21 — Knowledge graph tab */}
+              <TabsContent value="map">
+                <KnowledgeGraphView documentId={documentId} />
+              </TabsContent>
             </Tabs>
           )}
+
+          {/* Phase 4 #22 — share dialog */}
+          <ShareDialog
+            documentId={documentId}
+            documentName={documentDetail?.name || 'document'}
+            open={showShare}
+            onClose={() => setShowShare(false)}
+          />
+          {/* Phase 4 #23 — publish dialog */}
+          <PublishDialog
+            documentId={documentId}
+            documentName={documentDetail?.name || 'document'}
+            open={showPublish}
+            onClose={() => setShowPublish(false)}
+          />
         </div>
       </main>
     </div>
