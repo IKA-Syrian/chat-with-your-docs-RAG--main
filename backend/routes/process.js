@@ -203,6 +203,22 @@ function splitTextIntoChunks(text, maxChunkSize = 1000, overlapSize = 200) {
     return chunks;
 }
 
+/**
+ * Phase 2 #13 — hierarchical chunking.
+ * Returns parent chunks (~4000 chars, no embedding) each with an array of
+ * child chunks (~1000 chars) that get embedded.
+ *
+ * @param {string} text
+ * @returns {Array<{ content: string, children: string[] }>}
+ */
+function splitIntoParentChildChunks(text) {
+    const parents = splitTextIntoChunks(text, 4000, 400);
+    return parents.map(p => ({
+        content: p,
+        children: splitTextIntoChunks(p, 1000, 100)
+    }));
+}
+
 // Helper function to split a paragraph into sentences
 function splitParagraphIntoSentences(paragraph) {
     // Split by sentence-ending punctuation followed by whitespace or end of string
@@ -700,7 +716,76 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'No text could be extracted from document' });
         }
 
-        // Split text into chunks for embedding
+        // -------------------------------------------------------------------
+        // Phase 2 #13: Try hierarchical (parent/child) chunking if the schema
+        // supports it. Probe by attempting an insert with parent_chunk_id —
+        // if it errors with "column does not exist", fall back to the legacy
+        // flat chunk loop.
+        // -------------------------------------------------------------------
+        let useHierarchical = process.env.USE_PARENT_CHILD_CHUNKS !== 'false';
+        if (useHierarchical) {
+            // Cheap probe: select the new column. If it 400s, switch to legacy.
+            const { error: probeErr } = await supabase
+                .from('document_sections')
+                .select('parent_chunk_id', { head: true, count: 'exact' })
+                .limit(1);
+            if (probeErr) {
+                console.log('ℹ️  parent_chunk_id column missing — using legacy flat chunking');
+                useHierarchical = false;
+            }
+        }
+
+        if (useHierarchical) {
+            console.log('🌳 Splitting text into parent/child chunks...');
+            const parents = splitIntoParentChildChunks(text);
+            console.log(`📊 Created ${parents.length} parent chunks`);
+
+            for (let pi = 0; pi < parents.length; pi++) {
+                const parent = parents[pi];
+
+                // Insert parent (no embedding, chunk_level = 0)
+                const { data: parentRow, error: parentErr } = await supabase
+                    .from('document_sections')
+                    .insert({
+                        document_id,
+                        content: parent.content,
+                        chunk_level: 0,
+                        chunk_index: pi
+                    })
+                    .select('id')
+                    .single();
+
+                if (parentErr || !parentRow) {
+                    console.error(`❌ Failed to insert parent ${pi + 1}:`, parentErr);
+                    continue;
+                }
+
+                // Insert children with embeddings
+                for (let ci = 0; ci < parent.children.length; ci++) {
+                    const child = parent.children[ci];
+                    try {
+                        const embedding = await createEmbedding(child);
+                        const { error: childErr } = await supabase
+                            .from('document_sections')
+                            .insert({
+                                document_id,
+                                content: child,
+                                embedding,
+                                parent_chunk_id: parentRow.id,
+                                chunk_level: 1,
+                                chunk_index: ci
+                            });
+                        if (childErr) {
+                            console.error(`❌ Failed to insert child ${pi}.${ci}:`, childErr);
+                        }
+                    } catch (embErr) {
+                        console.error(`❌ Embedding failed for child ${pi}.${ci}:`, embErr.message);
+                    }
+                }
+                console.log(`✅ Parent ${pi + 1}/${parents.length}: ${parent.children.length} children indexed`);
+            }
+        } else {
+        // Split text into chunks for embedding (legacy flat path)
         console.log('🔪 Splitting text into chunks...');
         const chunks = splitTextIntoChunks(text);
         console.log('📊 Created', chunks.length, 'chunks');
@@ -770,6 +855,7 @@ router.post('/', async (req, res) => {
                 console.error('❌ Error creating embedding:', embeddingError);
             }
         }
+        } // end legacy flat-chunking branch
 
         // Update document status to processed
         const { error: finalUpdateError } = await supabase

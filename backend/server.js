@@ -22,6 +22,7 @@ import testRoutes from './routes/test.js';
 // Import enhanced routes
 import analyticsRoutes from './routes/analytics.js';
 import enhancedProcessingRoutes from './routes/enhanced-processing.js';
+import flashcardsRoutes from './routes/flashcards.js';
 
 // Import enhanced error handler
 import { enhancedErrorHandler } from './lib/enhanced-error-handler.js';
@@ -200,6 +201,7 @@ app.use('/api/test', generalLimiter, testRoutes);
 // Enhanced API routes
 app.use('/api/analytics', generalLimiter, analyticsRoutes);
 app.use('/api/enhanced-processing', generalLimiter, enhancedProcessingRoutes);
+app.use('/api/flashcards', generalLimiter, flashcardsRoutes);
 
 // Health check also available under API path
 app.get('/api/health', (req, res) => {

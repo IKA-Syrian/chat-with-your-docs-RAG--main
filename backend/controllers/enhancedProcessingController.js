@@ -2,9 +2,57 @@ import enhancedAIService from '../lib/enhanced-ai-service.js';
 import enhancedPDFService from '../lib/enhanced-pdf-service.js';
 import { documentModel } from '../lib/analytics-models.js';
 import { supabaseAdmin } from '../lib/supabase.js';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+
+/**
+ * Phase 2 #6 — also materialize generated flashcards into the rows-based
+ * `flashcards` table so FSRS scheduling works. Idempotent via fingerprint.
+ * Silently no-ops if the table doesn't exist (migration not yet applied).
+ */
+async function materializeFlashcardRows(documentId, flashcardsData) {
+    try {
+        const arr = Array.isArray(flashcardsData)
+            ? flashcardsData
+            : (Array.isArray(flashcardsData?.flashcards) ? flashcardsData.flashcards : []);
+        if (arr.length === 0) return;
+
+        const supabase = supabaseAdmin();
+        const rows = arr
+            .map((c, i) => {
+                const front = c.front || c.question || '';
+                const back = c.back || c.answer || '';
+                if (!front || !back) return null;
+                const fingerprint = crypto.createHash('sha256').update(`${front}|${back}`).digest('hex');
+                return {
+                    document_id: documentId,
+                    front,
+                    back,
+                    card_index: i,
+                    fingerprint
+                };
+            })
+            .filter(Boolean);
+        if (rows.length === 0) return;
+
+        const { error } = await supabase
+            .from('flashcards')
+            .upsert(rows, { onConflict: 'document_id,fingerprint', ignoreDuplicates: true });
+        if (error) {
+            // 42P01 = table does not exist (migration not run yet). Silent.
+            if (error.code !== '42P01' && !/does not exist/i.test(error.message || '')) {
+                console.warn('⚠️ flashcard row materialization failed:', error.message);
+            }
+        } else {
+            console.log(`📇 Materialized ${rows.length} flashcard rows for FSRS`);
+        }
+    } catch (err) {
+        // Never let this block the response.
+        console.warn('⚠️ flashcard row materialization threw:', err.message);
+    }
+}
 
 // Load environment variables (needed for standalone testing)
 import dotenv from 'dotenv';
@@ -236,6 +284,8 @@ class EnhancedProcessingController {
             // Update document if document_id provided
             if (document_id) {
                 documentModel.update(document_id, { flashcards: data });
+                // Phase 2 #6 — sidecar: also materialize as rows for FSRS.
+                materializeFlashcardRows(document_id, data).catch(() => {});
             }
 
             res.json({
@@ -474,6 +524,8 @@ class EnhancedProcessingController {
                     } else {
                         console.log('✅ Educational content saved to database successfully');
                         result.saved_to_database = true;
+                        // Phase 2 #6 — also materialize flashcards into rows for FSRS.
+                        materializeFlashcardRows(document_id, flashcards).catch(() => {});
                     }
                 } catch (saveError) {
                     console.error('❌ Error saving educational content to database:', saveError);

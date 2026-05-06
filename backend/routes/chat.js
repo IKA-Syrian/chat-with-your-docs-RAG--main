@@ -10,10 +10,30 @@ import { createUserClient } from '../lib/supabase.js';
 import fetch from 'node-fetch';
 import { validateUser } from './auth.js';
 import aiProviderManager from '../lib/ai-providers.js';
+import { buildSafeContextBlock, PROMPT_SAFETY_PREAMBLE } from '../lib/prompt-safety.js';
 import path from 'path';
 import fs from 'fs';
 
 const router = Router();
+
+/**
+ * Cheap deterministic 384-dim embedding used as a fallback when no real
+ * embedding service is available. NOT semantically meaningful — but the
+ * hybrid retrieval RPC will still return BM25 hits even when the vector
+ * branch contributes noise. TODO(phase 3): swap for the embedding service.
+ */
+function createCheapEmbedding(text, dims = 384) {
+    const emb = new Array(dims).fill(0);
+    let hash = 0;
+    const s = String(text || '');
+    for (let i = 0; i < s.length; i++) {
+        hash = (hash * 31 + s.charCodeAt(i)) & 0xffffffff;
+    }
+    for (let i = 0; i < dims; i++) {
+        emb[i] = Math.sin(hash + i) * 0.5;
+    }
+    return emb;
+}
 
 /**
  * @swagger
@@ -185,6 +205,54 @@ router.post('/', async (req, res) => {
         // Search for relevant document sections (filtered by document_id if provided)
         let relevantSections = [];
 
+        // -------------------------------------------------------------------
+        // PHASE 2 #12: HYBRID SEARCH (BM25 + vector + RRF) via RPC.
+        // Falls through to the legacy ladder if the RPC isn't available yet
+        // (i.e. the migration hasn't been run).
+        // -------------------------------------------------------------------
+        try {
+            const queryEmbeddingForHybrid = createCheapEmbedding(message); // see helper below
+            const { data: hybridMatches, error: hybridErr } = await supabase.rpc(
+                'hybrid_match_document_sections',
+                {
+                    query_text: message,
+                    query_embedding: queryEmbeddingForHybrid,
+                    target_doc_id: document_id || null,
+                    top_k: 8
+                }
+            );
+
+            if (hybridErr) {
+                // PGRST202 = PostgREST "function not found"; 42883 = Postgres "function does not exist".
+                // Either means migration 003 hasn't been applied; fall through silently to the legacy ladder.
+                const looksMissing =
+                    hybridErr.code === 'PGRST202' ||
+                    hybridErr.code === '42883' ||
+                    /function|not found|does not exist/i.test(hybridErr.message || '');
+                if (looksMissing) {
+                    console.log('ℹ️  hybrid_match_document_sections RPC not present; falling back to legacy retrieval');
+                } else {
+                    console.warn('⚠️  Hybrid search RPC errored, falling back:', hybridErr.message);
+                }
+            } else if (hybridMatches && hybridMatches.length > 0) {
+                relevantSections = hybridMatches.map((m, i) => ({
+                    id: m.id,
+                    content: m.content,
+                    document_id: m.document_id,
+                    page_number: m.page_number,
+                    page: m.page_number,
+                    chunk_index: m.chunk_index,
+                    documents: { name: documentInfo?.name || 'Document' }
+                }));
+                console.log(`✅ Hybrid search returned ${relevantSections.length} chunks`);
+            }
+        } catch (hybridCatch) {
+            console.warn('⚠️  Hybrid search threw, falling back:', hybridCatch.message);
+        }
+
+        if (relevantSections.length > 0) {
+            // Skip the legacy ladder when hybrid succeeded.
+        } else
         try {
             // First try text search with user's query
             let query = supabase
@@ -219,21 +287,8 @@ router.post('/', async (req, res) => {
 
                 console.log('No text matches – attempting vector similarity search');
 
-                // very small helper to create a cheap deterministic 384-dim embedding
-                const createSimpleEmbedding = (text, dims = 384) => {
-                    const emb = new Array(dims).fill(0);
-                    let hash = 0;
-                    for (let i = 0; i < text.length; i++) {
-                        hash = (hash * 31 + text.charCodeAt(i)) & 0xffffffff;
-                    }
-                    for (let i = 0; i < dims; i++) {
-                        emb[i] = Math.sin(hash + i) * 0.5;
-                    }
-                    return emb;
-                };
-
                 try {
-                    const queryEmbedding = createSimpleEmbedding(message);
+                    const queryEmbedding = createCheapEmbedding(message);
                     const rpcPayload = {
                         query_embedding: queryEmbedding,
                         match_threshold: 0.6,
@@ -350,16 +405,46 @@ router.post('/', async (req, res) => {
             }];
         }
 
-        // Prepare context from relevant document sections
-        let context = '';
-        if (documentInfo) {
-            context += `You are answering questions about a document titled "${documentInfo.name}". `;
+        // Prepare context — SANITIZE retrieved chunks (Feature #18) and wrap them
+        // in <document>...</document> blocks so the LLM can be told to treat them
+        // as untrusted data, not instructions.
+        const { block: wrappedChunks, flags: injectionFlags } = buildSafeContextBlock(
+            (relevantSections || []).map(s => ({
+                content: s.content,
+                document_id: s.document_id,
+                id: s.id,
+                page: s.page ?? s.page_number,
+                chunk_index: s.chunk_index
+            }))
+        );
+
+        if (injectionFlags.length > 0) {
+            console.warn(`⚠️  Prompt-injection patterns neutralized: ${injectionFlags.length} flag(s)`,
+                injectionFlags.slice(0, 5).map(f => ({ type: f.type, doc: f.document_id, snippet: f.snippet?.slice(0, 60) })));
+            // Best-effort log to security_events table — table may not exist yet (migration ships in Phase 2).
+            try {
+                const rows = injectionFlags.slice(0, 20).map(f => ({
+                    user_id: user.id,
+                    document_id: f.document_id || null,
+                    section_id: f.section_id || null,
+                    flag_type: f.type,
+                    pattern: f.pattern,
+                    snippet: (f.snippet || '').slice(0, 200)
+                }));
+                await supabase.from('security_events').insert(rows);
+            } catch (logErr) {
+                // Table may not exist yet — silent ignore.
+            }
         }
 
-        context += relevantSections.length
-            ? `Here are some relevant sections from the user's document${documentInfo ? '' : 's'}:\n\n${relevantSections.map(section =>
-                `From document "${section.documents?.name}":\n${section.content}`).join('\n\n')}`
-            : `You are answering questions about a document titled "${documentInfo?.name || 'Unknown'}". I don't have specific sections to show you, but please try to answer based on your general knowledge. If you need more information, ask the user.`;
+        let context = '';
+        if (documentInfo) {
+            context += `Document: "${documentInfo.name}"\n\n`;
+        }
+
+        context += wrappedChunks
+            ? wrappedChunks
+            : `[no document chunks retrieved — answer from general knowledge if appropriate, or ask the user for more context]`;
 
         // ------------------------------------------------------------------
         // SAFETY: Large contexts can exceed provider limits (e.g. OpenRouter
@@ -439,7 +524,7 @@ router.post('/', async (req, res) => {
         // Prepare messages for AI
         const messages = [
             {
-                role: 'system', content: `${explainPreamble}You are a helpful assistant that answers questions based on the user's documents.
+                role: 'system', content: `${PROMPT_SAFETY_PREAMBLE}${explainPreamble}You are a helpful assistant that answers questions based on the user's documents.
 
 THIS IS THE DOCUMENT CONTENT:
 ${context}
