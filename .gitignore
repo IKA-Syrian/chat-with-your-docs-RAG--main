@@ -224,5 +224,10 @@ private/
 # Redundant entries removed - node_modules/ already covers all subdirectories
 
 *.sql
+# Migration SQL files are tracked even though *.sql is ignored.
+!backend/migrations/*.sql
 
 .vscode/
+
+# Local project notes (excluded from git)
+docs/

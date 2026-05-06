@@ -1,0 +1,39 @@
+# Migrations
+
+Run these in order against your Supabase database (Studio → SQL Editor, or `psql`).
+All migrations are **additive** — they add columns/tables/functions but do not
+drop or modify existing data.
+
+## Order
+
+1. `2026-05-06-001-security-events.sql` — log table for prompt-injection flags
+2. `2026-05-06-002-parent-chunks.sql` — `parent_chunk_id`, `chunk_level`, `page_number`, `chunk_index` on `document_sections`
+3. `2026-05-06-003-hybrid-search.sql` — `content_tsv` column + `hybrid_match_document_sections` RPC
+4. `2026-05-06-004-fsrs.sql` — `flashcards` + `flashcard_reviews` tables and RLS
+5. `2026-05-06-005-fsrs-backfill.sql` — one-time backfill of legacy JSON flashcards into rows
+
+## Lock notes (read before running on a populated DB)
+
+- **003-hybrid-search.sql** adds a `GENERATED ALWAYS AS ... STORED` column.
+  Postgres rewrites the entire `document_sections` table and holds an
+  `ACCESS EXCLUSIVE` lock for the duration. On a multi-GB table this can
+  block reads/writes for minutes. Run during a maintenance window.
+- **002-parent-chunks.sql** only adds nullable columns and a few indexes —
+  fast and doesn't rewrite the table.
+- **001 / 004 / 005** all create new tables and don't touch existing rows
+  beyond the explicit backfill.
+
+## Verify
+
+After running, confirm:
+
+```sql
+SELECT column_name FROM information_schema.columns WHERE table_name = 'document_sections';
+-- Should include: parent_chunk_id, chunk_level, page_number, chunk_index, content_tsv
+
+SELECT proname FROM pg_proc WHERE proname = 'hybrid_match_document_sections';
+-- Should return 1 row
+
+SELECT count(*) FROM flashcards;
+SELECT count(*) FROM flashcard_reviews;
+```

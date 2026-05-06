@@ -1,0 +1,10 @@
+{
+  "id": "example-summary",
+  "description": "Sample fixture — replace document_id. Tests that the chat returns at least one source when asked to summarize.",
+  "document_id": "REPLACE_WITH_REAL_DOC_ID",
+  "question": "Summarize this document in one paragraph.",
+  "explain_mode": "default",
+  "expected_keywords": [],
+  "forbidden_keywords": ["unable to access", "cannot read"],
+  "min_sources": 1
+}

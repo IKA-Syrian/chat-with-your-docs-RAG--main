@@ -4,6 +4,7 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
+        "eval": "node evals/run.js",
         "gen:types": "supabase gen types typescript --local > supabase/functions/_lib/database.ts"
     },
     "dependencies": {

@@ -1,0 +1,10 @@
+{
+  "id": "example-swot",
+  "description": "Sample fixture — replace document_id with a real one from your DB. Tests that the LLM can correctly expand SWOT when the document mentions but doesn't define it.",
+  "document_id": "REPLACE_WITH_REAL_DOC_ID",
+  "question": "What does SWOT stand for?",
+  "explain_mode": "default",
+  "expected_keywords": ["strengths", "weaknesses", "opportunities", "threats"],
+  "forbidden_keywords": ["i don't know", "no information available"],
+  "min_sources": 0
+}
