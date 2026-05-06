@@ -16,6 +16,7 @@ import { Progress } from "@/components/ui/progress"
 import { useSessionTracking } from '@/lib/hooks/use-session-tracking'
 import { useKeyboardShortcuts, formatShortcut, type Shortcut } from '@/lib/hooks/use-keyboard-shortcuts'
 import ExportMenu from '@/components/ui/export-menu'
+import ReviewQueue from '@/components/ui/review-queue'
 
 // Types matching our backend responses
 interface DocumentDetail {
@@ -832,6 +833,9 @@ export default function StudyPage() {
 
               <TabsContent value="flashcards">
                 <div className="space-y-4">
+                  {/* Phase 2 #6 — FSRS review queue (shows nothing until migration runs) */}
+                  <ReviewQueue documentId={documentId} />
+
                   {documentDetail.flashcards?.flashcards && documentDetail.flashcards.flashcards.length > 0 ? (
                     <div className="space-y-4">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

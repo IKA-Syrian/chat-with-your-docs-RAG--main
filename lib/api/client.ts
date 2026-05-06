@@ -583,6 +583,47 @@ class ApiClient {
     });
   }
 
+  // ----- Phase 2 #6: spaced repetition (FSRS) -----
+  async getDueFlashcards(opts: { documentId?: string; limit?: number } = {}) {
+    const qs = new URLSearchParams();
+    if (opts.documentId) qs.set('document_id', opts.documentId);
+    if (opts.limit) qs.set('limit', String(opts.limit));
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return this.request<{
+      cards: Array<{
+        id: string;
+        document_id: string;
+        front: string;
+        back: string;
+        card_index: number | null;
+        review: null | {
+          due_at: string;
+          stability: number;
+          difficulty: number;
+          reps: number;
+          lapses: number;
+          state: number;
+          last_review: string | null;
+          last_rating: number | null;
+        };
+      }>;
+      ratings: { AGAIN: 1; HARD: 2; GOOD: 3; EASY: 4 };
+    }>(`/flashcards/due${suffix}`);
+  }
+
+  async reviewFlashcard(flashcardId: string, rating: 1 | 2 | 3 | 4) {
+    return this.request<{ review: any }>(`/flashcards/${flashcardId}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ rating })
+    });
+  }
+
+  async getFlashcardStats() {
+    return this.request<{ due_now: number; reviewed_today: number; total_cards: number }>(
+      '/flashcards/stats'
+    );
+  }
+
   // Health check
   async healthCheck() {
     return this.request<{
