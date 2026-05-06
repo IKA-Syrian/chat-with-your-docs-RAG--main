@@ -2,177 +2,133 @@
 
 import Link from 'next/link';
 import { PropsWithChildren, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/api/auth';
 import LogoutButton from '@/components/LogoutButton';
 
+/**
+ * Top-of-page navigation. The "desk shelf" — sits high, hairline below,
+ * sticky so it follows the reader. Logo is wordmark-only, set in the
+ * display serif.
+ */
 export default function LayoutClient({ children }: PropsWithChildren) {
   const { user } = useAuth();
+  const pathname = usePathname() || '/';
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
-  return (
-    <div className="flex flex-col h-screen">
-      <header className="bg-slate-800 text-white flex-shrink-0 z-10">
-        <div className="w-full flex justify-between items-center px-4">
-          <Link href="/" className="py-3 px-2 font-bold text-base sm:text-lg truncate">
-            Chat with Your Documents
-          </Link>
-          
-          {/* Desktop Navigation */}
-          <div className="hidden sm:flex items-center">
-            {user ? (
-              <>
-                <div className="flex items-center">
-                  <Link
-                    href="/files"
-                    className="py-3 px-3 cursor-pointer hover:bg-slate-700 font-medium text-sm"
-                  >
-                    Files
-                  </Link>
-                  <Link
-                    href="/chat"
-                    className="py-3 px-3 cursor-pointer hover:bg-slate-700 font-medium text-sm"
-                  >
-                    Chat
-                  </Link>
-                  <Link
-                    href="/chat?new=true"
-                    className="py-3 px-3 cursor-pointer hover:bg-slate-700 font-medium text-sm"
-                  >
-                    New Chat
-                  </Link>
-                  <Link
-                    href="/analytics"
-                    className="py-3 px-3 cursor-pointer hover:bg-slate-700 font-medium text-sm"
-                  >
-                    Analytics
-                  </Link>
-                  <Link
-                    href="/explore"
-                    className="py-3 px-3 cursor-pointer hover:bg-slate-700 font-medium text-sm"
-                  >
-                    Explore
-                  </Link>
-                </div>
-                
-                {/* User info */}
-                <div className="flex items-center ml-2">
-                  <div className="flex items-center gap-2">
-                    <span className="hidden md:block text-sm px-2">
-                      {user.email}
-                    </span>
-                    <LogoutButton />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center">
-                <Link
-                  href="/login"
-                  className="py-3 px-3 cursor-pointer hover:bg-slate-700 font-medium text-sm"
-                >
-                  Login
-                </Link>
-              </div>
-            )}
-          </div>
 
-          {/* Mobile Menu Button */}
-          <div className="sm:hidden flex items-center">
+  const NAV: Array<{ href: string; label: string }> = user
+    ? [
+        { href: '/files', label: 'Library' },
+        { href: '/chat', label: 'Chat' },
+        { href: '/explore', label: 'Explore' },
+        { href: '/analytics', label: 'Analytics' },
+      ]
+    : [
+        { href: '/explore', label: 'Explore' },
+      ];
+
+  const isActive = (href: string) =>
+    href === '/' ? pathname === '/' : pathname.startsWith(href);
+
+  return (
+    <div className="flex flex-col h-screen bg-bg text-ink">
+      <header className="desk-shelf sticky top-0 z-30 flex-shrink-0">
+        <div className="w-full max-w-[1400px] mx-auto flex items-center justify-between px-5 sm:px-8 lg:px-10 h-14">
+          {/* Wordmark */}
+          <Link
+            href="/"
+            className="font-display text-xl tracking-tight hover:text-accent-deep transition-colors duration-200 ease-out-expo"
+          >
+            Study<span className="italic font-light text-ink-soft">AI</span>
+          </Link>
+
+          {/* Desktop nav — pill links, accent underline on active */}
+          <nav className="hidden sm:flex items-center gap-1">
+            {NAV.map(item => (
+              <Link
+                key={item.href}
+                href={item.href}
+                data-state={isActive(item.href) ? 'active' : undefined}
+                className="nb-tab"
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+
+          {/* Account */}
+          <div className="hidden sm:flex items-center gap-3">
             {user ? (
               <>
-                <span className="text-xs px-2 truncate max-w-24">
-                  {user.email?.split('@')[0]}
+                <span className="text-xs text-ink-soft hidden md:block tracking-tight">
+                  {user.email}
                 </span>
-                <button
-                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                  className="p-2 rounded-md hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"
-                  aria-label="Toggle mobile menu"
-                >
-                  <svg
-                    className="h-6 w-6"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    {mobileMenuOpen ? (
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    ) : (
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M4 6h16M4 12h16M4 18h16"
-                      />
-                    )}
-                  </svg>
-                </button>
+                <LogoutButton />
               </>
             ) : (
               <Link
                 href="/login"
-                className="py-2 px-3 rounded-md hover:bg-slate-700 font-medium text-sm"
+                className="text-sm font-medium text-ink hover:text-accent-deep transition-colors"
               >
-                Login
+                Sign in
+                <span aria-hidden className="ml-1.5 text-ink-faint">→</span>
               </Link>
             )}
           </div>
+
+          {/* Mobile trigger */}
+          <button
+            onClick={() => setMobileMenuOpen(v => !v)}
+            className="sm:hidden inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-surface-2 text-ink transition-colors"
+            aria-label="Toggle menu"
+            aria-expanded={mobileMenuOpen}
+          >
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              {mobileMenuOpen
+                ? <path strokeLinecap="round" d="M6 18L18 6M6 6l12 12" />
+                : <path strokeLinecap="round" d="M4 7h16M4 17h16" />
+              }
+            </svg>
+          </button>
         </div>
 
-        {/* Mobile Menu */}
-        {mobileMenuOpen && user && (
-          <div className="sm:hidden bg-slate-700 border-t border-slate-600">
-            <div className="px-2 pt-2 pb-3 space-y-1">
-              <Link
-                href="/files"
-                className="block px-3 py-2 text-sm font-medium hover:bg-slate-600 rounded-md"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                📁 Files
-              </Link>
-              <Link
-                href="/chat"
-                className="block px-3 py-2 text-sm font-medium hover:bg-slate-600 rounded-md"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                💬 Chat
-              </Link>
-              <Link
-                href="/chat?new=true"
-                className="block px-3 py-2 text-sm font-medium hover:bg-slate-600 rounded-md"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                ➕ New Chat
-              </Link>
-              <Link
-                href="/analytics"
-                className="block px-3 py-2 text-sm font-medium hover:bg-slate-600 rounded-md"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                📊 Analytics
-              </Link>
-              <Link
-                href="/explore"
-                className="block px-3 py-2 text-sm font-medium hover:bg-slate-600 rounded-md"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                🌍 Explore
-              </Link>
-              <div className="px-3 py-2 border-t border-slate-600 mt-2 pt-2">
-                <div className="text-xs text-slate-300 mb-2">{user.email}</div>
-                <LogoutButton />
+        {/* Mobile drawer */}
+        {mobileMenuOpen && (
+          <div className="sm:hidden border-t border-rule bg-surface animate-fade-in-up">
+            <nav className="px-4 py-3 flex flex-col gap-1">
+              {NAV.map(item => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  data-state={isActive(item.href) ? 'active' : undefined}
+                  className="nb-tab block py-2.5"
+                >
+                  {item.label}
+                </Link>
+              ))}
+              <div className="border-t border-rule mt-2 pt-3">
+                {user ? (
+                  <>
+                    <div className="text-xs text-ink-faint mb-2 truncate">{user.email}</div>
+                    <LogoutButton />
+                  </>
+                ) : (
+                  <Link
+                    href="/login"
+                    className="text-sm font-medium text-ink hover:text-accent-deep"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Sign in →
+                  </Link>
+                )}
               </div>
-            </div>
+            </nav>
           </div>
         )}
       </header>
-      <main className="flex-1 overflow-hidden">
-        {children}
-      </main>
+
+      <main className="flex-1 overflow-y-auto">{children}</main>
     </div>
   );
-} 
+}

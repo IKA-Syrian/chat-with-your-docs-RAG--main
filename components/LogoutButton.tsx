@@ -26,11 +26,11 @@ export default function LogoutButton() {
   };
 
   return (
-    <button 
+    <button
       onClick={handleLogout}
-      className="py-2 px-4 rounded-md no-underline bg-btn-background hover:bg-btn-background-hover"
+      className="text-xs font-medium text-ink-soft hover:text-ink transition-colors duration-200 ease-out-expo"
     >
-      Logout
+      Sign out
     </button>
   );
 }
