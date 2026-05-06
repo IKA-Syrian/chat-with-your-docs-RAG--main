@@ -153,6 +153,19 @@ class AIProviderManager {
         });
     }
 
+    /**
+     * Phase 3 #14 — pick a provider that supports `transcribePdf`. Preference
+     * order: gemini → claude. Returns null if none of the supported providers
+     * is enabled.
+     */
+    getVisionProvider() {
+        const order = ['gemini', 'claude'];
+        for (const id of order) {
+            if (this.providers[id]) return this.providers[id];
+        }
+        return null;
+    }
+
     getAvailableProvidersWithModels() {
         return Object.keys(this.config.providers).map(id => {
             const provider = this.config.providers[id];
@@ -189,6 +202,142 @@ class AIProvider {
             default:
                 throw new Error(`Unknown provider: ${this.id}`);
         }
+    }
+
+    /**
+     * Phase 3 #14 — transcribe a PDF directly via the multimodal API.
+     * Gemini and Claude accept PDF bytes natively; OpenAI/OpenRouter currently
+     * throw "unsupported" because they require pre-rasterization to images.
+     *
+     * @param {Buffer} pdfBuffer
+     * @param {{ model?: string, documentName?: string }} [options]
+     * @returns {Promise<{ text: string, model: string, provider: string, usage?: any }>}
+     */
+    async transcribePdf(pdfBuffer, options = {}) {
+        switch (this.id) {
+            case 'gemini':
+                return this.transcribePdfWithGemini(pdfBuffer, options);
+            case 'claude':
+                return this.transcribePdfWithClaude(pdfBuffer, options);
+            case 'openai':
+            case 'openrouter':
+            default:
+                const err = new Error(`transcribePdf not supported for provider "${this.id}"`);
+                err.code = 'OCR_UNSUPPORTED';
+                throw err;
+        }
+    }
+
+    async transcribePdfWithGemini(pdfBuffer, options = {}) {
+        if (!Buffer.isBuffer(pdfBuffer)) {
+            throw new Error('pdfBuffer must be a Buffer');
+        }
+        // Gemini's documented inline-data limit is ~30MB. Refuse early.
+        if (pdfBuffer.length > 30 * 1024 * 1024) {
+            const err = new Error('PDF exceeds 30MB Gemini inline-data limit');
+            err.code = 'OCR_PDF_TOO_LARGE';
+            throw err;
+        }
+
+        const genAI = new GoogleGenerativeAI(this.config.apiKey);
+        const modelName = options.model || this.config.models?.chat?.primary || 'gemini-1.5-flash';
+        const model = genAI.getGenerativeModel({ model: modelName });
+
+        const docName = options.documentName || 'document';
+        const prompt = `Transcribe ALL visible text in the attached PDF "${docName}" verbatim.
+Rules:
+- Preserve heading hierarchy with markdown (#, ##, ###).
+- Insert "[PAGE N]" markers between pages where N is the 1-based page number.
+- Preserve ordered/unordered list structure as markdown.
+- Do NOT summarize, paraphrase, or skip content.
+- Do NOT add commentary, headers, or "Here is the transcription:" prefaces — output ONLY the transcribed text.`;
+
+        const result = await model.generateContent([
+            { text: prompt },
+            { inlineData: { mimeType: 'application/pdf', data: pdfBuffer.toString('base64') } }
+        ]);
+        const response = await result.response;
+        const text = response.text();
+        const usage = response?.usageMetadata || null;
+
+        return {
+            text,
+            model: modelName,
+            provider: 'gemini',
+            usage: usage ? {
+                prompt_tokens: usage.promptTokenCount,
+                completion_tokens: usage.candidatesTokenCount,
+                total_tokens: usage.totalTokenCount
+            } : null
+        };
+    }
+
+    async transcribePdfWithClaude(pdfBuffer, options = {}) {
+        if (!Buffer.isBuffer(pdfBuffer)) throw new Error('pdfBuffer must be a Buffer');
+        if (pdfBuffer.length > 32 * 1024 * 1024) {
+            const err = new Error('PDF exceeds 32MB Claude inline-data limit');
+            err.code = 'OCR_PDF_TOO_LARGE';
+            throw err;
+        }
+
+        const docName = options.documentName || 'document';
+        const prompt = `Transcribe ALL visible text in the attached PDF "${docName}" verbatim.
+Rules:
+- Preserve heading hierarchy with markdown.
+- Insert "[PAGE N]" markers between pages.
+- Preserve list structure.
+- Do NOT summarize. Output ONLY the transcribed text.`;
+
+        const response = await fetch(this.config.endpoints.chat, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': this.config.apiKey,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify({
+                model: options.model || this.config.models.chat.primary,
+                max_tokens: 8000,
+                messages: [{
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'document',
+                            source: {
+                                type: 'base64',
+                                media_type: 'application/pdf',
+                                data: pdfBuffer.toString('base64')
+                            }
+                        },
+                        { type: 'text', text: prompt }
+                    ]
+                }]
+            })
+        });
+
+        if (!response.ok) {
+            const errBody = await response.json().catch(() => ({}));
+            const err = new Error(`Claude OCR error: ${errBody?.error?.message || response.statusText}`);
+            err.code = 'OCR_PROVIDER_ERROR';
+            throw err;
+        }
+
+        const data = await response.json();
+        const text = (data.content || [])
+            .filter(c => c.type === 'text')
+            .map(c => c.text)
+            .join('\n');
+
+        return {
+            text,
+            model: options.model || this.config.models.chat.primary,
+            provider: 'claude',
+            usage: data.usage ? {
+                prompt_tokens: data.usage.input_tokens,
+                completion_tokens: data.usage.output_tokens,
+                total_tokens: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0)
+            } : null
+        };
     }
 
     async chatWithGemini(messages, options) {

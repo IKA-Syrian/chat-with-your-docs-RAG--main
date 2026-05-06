@@ -167,7 +167,7 @@ router.post('/', async (req, res) => {
             return res.status(401).json({ error: 'No authorization token provided' });
         }
 
-        const { message, conversation_id, document_id, history = [], provider, model, explain_mode } = req.body;
+        const { message, conversation_id, document_id, document_ids, history = [], provider, model, explain_mode } = req.body;
 
         if (!message) {
             return res.status(400).json({ error: 'Message is required' });
@@ -177,6 +177,12 @@ router.post('/', async (req, res) => {
         const VALID_EXPLAIN_MODES = ['default', 'eli5', 'student', 'professor'];
         const safeExplainMode = VALID_EXPLAIN_MODES.includes(explain_mode) ? explain_mode : 'default';
 
+        // Phase 3 #17: normalize doc IDs. Prefer the array if supplied; cap at 10.
+        const normalizedDocIds = Array.isArray(document_ids) && document_ids.length > 0
+            ? document_ids.filter(id => typeof id === 'string').slice(0, 10)
+            : (document_id ? [document_id] : []);
+        const isMultiDoc = normalizedDocIds.length > 1;
+
         // Robust auth validation
         const { user, error: userError } = await validateUser(authToken);
         if (userError || !user) {
@@ -185,20 +191,23 @@ router.post('/', async (req, res) => {
 
         const supabase = createUserClient(authToken);
 
-        // Get document information if document_id is provided
+        // Get document information for ALL selected docs (multi-doc safe).
         let documentInfo = null;
-        if (document_id) {
-            const { data: document, error: documentError } = await supabase
+        const docNameById = new Map();
+        if (normalizedDocIds.length > 0) {
+            const { data: docs, error: documentError } = await supabase
                 .from('documents')
-                .select('*')
-                .eq('id', document_id)
-                .single();
+                .select('id, name')
+                .in('id', normalizedDocIds);
 
-            if (!documentError && document) {
-                documentInfo = document;
-                console.log(`Using document context: ${document.name} (ID: ${document.id})`);
+            if (!documentError && docs) {
+                docs.forEach(d => docNameById.set(d.id, d.name));
+                if (docs.length > 0) {
+                    documentInfo = docs[0]; // primary for header/title context
+                    console.log(`Using document context: ${docs.map(d => d.name).join(', ')} (${docs.length} doc${docs.length === 1 ? '' : 's'})`);
+                }
             } else {
-                console.log(`Document ID ${document_id} not found or error: ${documentError?.message}`);
+                console.log(`Document IDs not found or error: ${documentError?.message}`);
             }
         }
 
@@ -211,15 +220,23 @@ router.post('/', async (req, res) => {
         // (i.e. the migration hasn't been run).
         // -------------------------------------------------------------------
         try {
-            const queryEmbeddingForHybrid = createCheapEmbedding(message); // see helper below
-            const { data: hybridMatches, error: hybridErr } = await supabase.rpc(
-                'hybrid_match_document_sections',
-                {
+            const queryEmbeddingForHybrid = createCheapEmbedding(message);
+            const rpcArgs = isMultiDoc
+                ? {
                     query_text: message,
                     query_embedding: queryEmbeddingForHybrid,
-                    target_doc_id: document_id || null,
-                    top_k: 8
+                    target_doc_ids: normalizedDocIds,
+                    top_k: 12
                 }
+                : {
+                    query_text: message,
+                    query_embedding: queryEmbeddingForHybrid,
+                    target_doc_id: normalizedDocIds[0] || null,
+                    top_k: 8
+                };
+            const { data: hybridMatches, error: hybridErr } = await supabase.rpc(
+                'hybrid_match_document_sections',
+                rpcArgs
             );
 
             if (hybridErr) {
@@ -242,9 +259,9 @@ router.post('/', async (req, res) => {
                     page_number: m.page_number,
                     page: m.page_number,
                     chunk_index: m.chunk_index,
-                    documents: { name: documentInfo?.name || 'Document' }
+                    documents: { name: docNameById.get(m.document_id) || documentInfo?.name || 'Document' }
                 }));
-                console.log(`✅ Hybrid search returned ${relevantSections.length} chunks`);
+                console.log(`✅ Hybrid search returned ${relevantSections.length} chunks${isMultiDoc ? ` across ${normalizedDocIds.length} docs` : ''}`);
             }
         } catch (hybridCatch) {
             console.warn('⚠️  Hybrid search threw, falling back:', hybridCatch.message);
@@ -263,9 +280,13 @@ router.post('/', async (req, res) => {
                     config: 'english'
                 });
 
-            // Filter by document_id if provided
-            if (document_id) {
-                query = query.eq('document_id', document_id);
+            // Filter by doc(s). Use the array form when caller selected multiple,
+            // otherwise fall back to single-id eq. Without this filter the legacy
+            // ladder would leak across documents.
+            if (normalizedDocIds.length === 1) {
+                query = query.eq('document_id', normalizedDocIds[0]);
+            } else if (normalizedDocIds.length > 1) {
+                query = query.in('document_id', normalizedDocIds);
             }
 
             // Limit results
@@ -412,6 +433,7 @@ router.post('/', async (req, res) => {
             (relevantSections || []).map(s => ({
                 content: s.content,
                 document_id: s.document_id,
+                document_name: s.documents?.name || docNameById.get(s.document_id) || null,
                 id: s.id,
                 page: s.page ?? s.page_number,
                 chunk_index: s.chunk_index
@@ -438,7 +460,10 @@ router.post('/', async (req, res) => {
         }
 
         let context = '';
-        if (documentInfo) {
+        if (isMultiDoc) {
+            const allNames = normalizedDocIds.map(id => docNameById.get(id)).filter(Boolean);
+            context += `Documents in scope (${allNames.length}): ${allNames.map(n => `"${n}"`).join(', ')}.\nWhen information comes from multiple documents, NAME each one in your answer.\n\n`;
+        } else if (documentInfo) {
             context += `Document: "${documentInfo.name}"\n\n`;
         }
 
@@ -472,16 +497,28 @@ router.post('/', async (req, res) => {
         let conversationIdToUse = conversation_id;
 
         if (!conversationIdToUse) {
-            // Create new conversation
-            const { data: newConversation, error: createError } = await supabase
+            // Create new conversation. Try to write document_ids[] (Phase 3 #17);
+            // if the column doesn't exist yet, retry without it.
+            const insertPayload = {
+                user_id: user.id,
+                document_id: normalizedDocIds[0] || null,
+                title: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
+            };
+            if (normalizedDocIds.length > 0) insertPayload.document_ids = normalizedDocIds;
+
+            let { data: newConversation, error: createError } = await supabase
                 .from('conversations')
-                .insert({
-                    user_id: user.id,
-                    document_id: document_id || null,
-                    title: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
-                })
+                .insert(insertPayload)
                 .select()
                 .single();
+            if (createError && /column.*document_ids|does not exist/i.test(createError.message || '')) {
+                delete insertPayload.document_ids;
+                ({ data: newConversation, error: createError } = await supabase
+                    .from('conversations')
+                    .insert(insertPayload)
+                    .select()
+                    .single());
+            }
 
             if (createError) {
                 console.error('Error creating conversation:', createError);
@@ -639,7 +676,8 @@ IMPORTANT INSTRUCTIONS:
                 id: generateId(),
                 message: aiMessage,
                 conversation_id: conversationIdToUse,
-                document_id: document_id || null,
+                document_id: normalizedDocIds[0] || null,
+                document_ids: normalizedDocIds.length > 0 ? normalizedDocIds : null,
                 document_name: documentInfo?.name || null,
                 timestamp: new Date().toISOString(),
                 sources: sourcesPayload,

@@ -104,8 +104,10 @@ export function wrapChunksForPrompt(chunks) {
     return chunks
         .map((c, i) => {
             const body = c.sanitized ?? c.content ?? '';
+            const safeName = c.document_name ? String(c.document_name).replace(/"/g, "'").slice(0, 80) : null;
             const meta = [
                 `chunk="${i + 1}"`,
+                safeName ? `name="${safeName}"` : null,
                 c.document_id ? `doc="${c.document_id}"` : null,
                 c.page != null ? `page="${c.page}"` : null,
                 c.chunk_index != null ? `idx="${c.chunk_index}"` : null
@@ -150,6 +152,7 @@ export function buildSafeContextBlock(sections) {
         return {
             sanitized: result.sanitized,
             document_id: s.document_id,
+            document_name: s.document_name ?? null,
             page: s.page ?? s.page_number ?? null,
             chunk_index: s.chunk_index ?? null
         };

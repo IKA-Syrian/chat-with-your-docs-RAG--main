@@ -903,6 +903,37 @@ router.post('/quiz/:document_id/submit', async (req, res) => {
             console.log('⚠️ Analytics recording failed:', recordError.message);
         }
 
+        // Phase 3 #9 — feed wrong answers into the mistake journal.
+        try {
+            const wrongRows = results
+                .filter(r => !r.isCorrect)
+                .map(r => ({
+                    user_id: user.id,
+                    document_id,
+                    source_kind: 'quiz',
+                    source_id: null,
+                    question: r.question,
+                    expected_answer: r.options?.[r.correctAnswer] ?? null,
+                    user_answer: r.userAnswer == null ? null : (r.options?.[r.userAnswer] ?? String(r.userAnswer)),
+                    details: {
+                        question_index: r.questionId,
+                        selected_option: r.userAnswer,
+                        correct_option: r.correctAnswer,
+                        explanation: r.explanation || null
+                    }
+                }));
+            if (wrongRows.length > 0) {
+                const { error: journalErr } = await supabase
+                    .from('wrong_answers')
+                    .insert(wrongRows);
+                if (journalErr && journalErr.code !== '42P01' && !/does not exist/i.test(journalErr.message || '')) {
+                    console.warn('⚠️  wrong_answers (quiz) insert failed:', journalErr.message);
+                }
+            }
+        } catch (journalCatch) {
+            console.warn('⚠️  wrong_answers (quiz) threw:', journalCatch.message);
+        }
+
         const response = {
             score,
             correctAnswers,

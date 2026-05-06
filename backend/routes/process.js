@@ -9,6 +9,8 @@ import { Router } from 'express';
 import { createUserClient, supabaseAdmin } from '../lib/supabase.js';
 import { validateUser } from './auth.js';
 import { processMarkdown } from '../lib/markdown-parser.js';
+import aiProviderManager from '../lib/ai-providers.js';
+import crypto from 'crypto';
 import fetch from 'node-fetch';
 import path from 'path';
 import fs from 'fs';
@@ -669,18 +671,121 @@ router.post('/', async (req, res) => {
             text = fileContent.toString('utf-8');
             console.log('📝 Processed as markdown');
         } else if (fileType.includes('application/pdf') || fileExtension === 'pdf') {
+            let pdfNumPages = 0;
             if (pdfParse) {
                 console.log('📄 Parsing PDF content');
                 try {
                     const pdfData = await pdfParse(fileContent);
-                    text = pdfData.text;
-                    console.log('✅ PDF parsed, extracted length:', text.length);
+                    text = pdfData.text || '';
+                    pdfNumPages = pdfData.numpages || 0;
+                    console.log(`✅ PDF parsed, extracted length: ${text.length}, pages: ${pdfNumPages}`);
                 } catch (e) {
                     console.error('❌ PDF parse failed:', e.message);
                     text = '';
                 }
             } else {
                 text = '';
+            }
+
+            // Phase 3 #14 — vision-LLM OCR fallback for image-heavy / scanned PDFs.
+            // Guard: only trigger when pdf-parse actually produced metadata
+            // (or text was empty BY extraction, not because the parser is missing).
+            // This avoids burning vision-API calls on every PDF when pdf-parse is unavailable.
+            const ocrEnabled = process.env.OCR_ENABLED !== 'false';
+            const parserAvailable = !!pdfParse;
+            const charsPerPage = pdfNumPages > 0 ? text.length / pdfNumPages : (parserAvailable ? text.length : 0);
+            const OCR_TRIGGER_TOTAL = 500;     // bare doc with almost nothing
+            const OCR_TRIGGER_PER_PAGE = 100;  // < 100 chars/page = likely scanned
+            const OCR_MAX_PAGES = 50;           // cost guard
+            const looksScanned = parserAvailable && (
+                text.length < OCR_TRIGGER_TOTAL ||
+                (pdfNumPages > 0 && charsPerPage < OCR_TRIGGER_PER_PAGE)
+            );
+
+            if (ocrEnabled && looksScanned) {
+                if (pdfNumPages > OCR_MAX_PAGES) {
+                    console.warn(`⚠️  OCR skipped: ${pdfNumPages} pages exceeds OCR_MAX_PAGES=${OCR_MAX_PAGES}`);
+                } else {
+                    const sha = crypto.createHash('sha256').update(fileContent).digest('hex');
+                    let ocrText = null;
+                    let ocrProvider = null;
+                    let ocrModel = null;
+
+                    // 1) Try cache first.
+                    try {
+                        const { data: cached } = await supabaseAdmin()
+                            .from('ocr_cache')
+                            .select('text, provider, model')
+                            .eq('file_sha256', sha)
+                            .maybeSingle();
+                        if (cached?.text) {
+                            ocrText = cached.text;
+                            ocrProvider = cached.provider;
+                            ocrModel = cached.model;
+                            console.log(`✅ OCR cache hit (${ocrText.length} chars)`);
+                        }
+                    } catch (cacheErr) {
+                        // ocr_cache table may not exist yet (pre-migration).
+                        if (!/does not exist/i.test(cacheErr.message || '') && cacheErr.code !== '42P01') {
+                            console.warn('⚠️  OCR cache read failed:', cacheErr.message);
+                        }
+                    }
+
+                    // 2) Cache miss → call vision provider.
+                    if (!ocrText) {
+                        const visionProvider = aiProviderManager.getVisionProvider();
+                        if (!visionProvider) {
+                            console.warn('⚠️  No vision-capable AI provider configured (Gemini or Claude required for OCR)');
+                        } else {
+                            try {
+                                console.log(`🔍 Triggering OCR via ${visionProvider.id}…`);
+                                const result = await visionProvider.transcribePdf(fileContent, { documentName: document?.name || 'document' });
+                                if (result?.text && result.text.length > text.length) {
+                                    ocrText = result.text;
+                                    ocrProvider = result.provider;
+                                    ocrModel = result.model;
+                                    console.log(`✅ OCR returned ${ocrText.length} chars via ${ocrProvider}/${ocrModel}`);
+                                    // Persist to cache (best-effort, idempotent on hash collision).
+                                    try {
+                                        await supabaseAdmin().from('ocr_cache').upsert({
+                                            file_sha256: sha,
+                                            text: ocrText,
+                                            provider: ocrProvider,
+                                            model: ocrModel
+                                        }, { onConflict: 'file_sha256', ignoreDuplicates: true });
+                                    } catch (writeErr) {
+                                        if (!/does not exist/i.test(writeErr.message || '') && writeErr.code !== '42P01') {
+                                            console.warn('⚠️  OCR cache write failed:', writeErr.message);
+                                        }
+                                    }
+                                }
+                            } catch (ocrErr) {
+                                if (ocrErr.code === 'OCR_UNSUPPORTED') {
+                                    console.warn('ℹ️  Selected provider does not support OCR; skipping');
+                                } else if (ocrErr.code === 'OCR_PDF_TOO_LARGE') {
+                                    console.warn('⚠️  PDF too large for inline OCR; skipping');
+                                } else {
+                                    console.error('❌ OCR call failed:', ocrErr.message);
+                                }
+                            }
+                        }
+                    }
+
+                    if (ocrText) {
+                        text = ocrText;
+                        // Update the documents row with OCR provenance (best-effort).
+                        try {
+                            await supabaseAdmin()
+                                .from('documents')
+                                .update({ ocr_used: true, ocr_provider: ocrProvider, ocr_model: ocrModel })
+                                .eq('id', document_id);
+                        } catch (updErr) {
+                            if (!/does not exist|column/i.test(updErr.message || '')) {
+                                console.warn('⚠️  documents OCR-flag update failed:', updErr.message);
+                            }
+                        }
+                    }
+                }
             }
         } else if ((fileType.includes('application/vnd.openxmlformats-officedocument.presentationml.presentation') || fileExtension === 'pptx' || fileExtension === 'ppt') && pptxParser) {
             console.log('📄 Parsing PPTX content');
@@ -735,10 +840,12 @@ router.post('/', async (req, res) => {
             }
         }
 
+        let chunksCount = 0;
         if (useHierarchical) {
             console.log('🌳 Splitting text into parent/child chunks...');
             const parents = splitIntoParentChildChunks(text);
             console.log(`📊 Created ${parents.length} parent chunks`);
+            chunksCount = parents.reduce((sum, p) => sum + p.children.length, 0);
 
             for (let pi = 0; pi < parents.length; pi++) {
                 const parent = parents[pi];
@@ -789,6 +896,7 @@ router.post('/', async (req, res) => {
         console.log('🔪 Splitting text into chunks...');
         const chunks = splitTextIntoChunks(text);
         console.log('📊 Created', chunks.length, 'chunks');
+        chunksCount = chunks.length;
 
         // Create embeddings for each chunk
         console.log('🧠 Creating embeddings...');
@@ -914,7 +1022,7 @@ router.post('/', async (req, res) => {
         }
 
         console.log('✅ Document processed successfully');
-        res.json({ success: true, chunks_count: chunks.length });
+        res.json({ success: true, chunks_count: chunksCount });
     } catch (error) {
         console.error('💥 Processing error:', error);
         res.status(500).json({ error: 'Processing failed: ' + error.message });
