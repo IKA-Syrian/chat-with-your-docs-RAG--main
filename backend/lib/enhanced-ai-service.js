@@ -1,5 +1,66 @@
 import aiProviderManager from './ai-providers.js';
 
+/**
+ * Repair a JSON string that was cut off mid-output (token-budget truncation).
+ *
+ * Strategy: walk forward as a tiny state machine, tracking whether we're
+ * inside a string and the stack of open structural characters. When we hit
+ * the end of input, drop any partial trailing token and close everything
+ * still on the stack. Loses the last (incomplete) array/object element but
+ * preserves every complete one before it.
+ *
+ * Returns a string that is at least syntactically valid JSON. JSON.parse
+ * may still reject it if the structural shape was already invalid before
+ * truncation, in which case the caller's existing error path handles it.
+ */
+function repairTruncatedJson(input) {
+    const stack = [];      // entries are '}' or ']' — what's still open
+    let inStr = false;
+    let escape = false;
+    // Last position where we know cutting would leave valid JSON after closing
+    // the open stack. Advanced ONLY at structural separators that mean "the
+    // previous value/element is fully written" — never inside a string and
+    // never just because we closed a key's quotes.
+    let lastSafeEnd = -1;
+
+    for (let i = 0; i < input.length; i++) {
+        const ch = input[i];
+        if (inStr) {
+            if (escape) { escape = false; continue; }
+            if (ch === '\\') { escape = true; continue; }
+            if (ch === '"') inStr = false;
+            continue;
+        }
+        if (ch === '"') { inStr = true; continue; }
+        if (ch === '{') { stack.push('}'); continue; }
+        if (ch === '[') { stack.push(']'); continue; }
+        if (ch === '}' || ch === ']') {
+            stack.pop();
+            lastSafeEnd = i + 1;     // safe AFTER closing a structure
+            continue;
+        }
+        if (ch === ',') {
+            lastSafeEnd = i;          // safe BEFORE the comma (drop it later)
+            continue;
+        }
+        // Whitespace / colon / number / bool / null literal middle: skip.
+    }
+
+    let body = lastSafeEnd > 0 ? input.slice(0, lastSafeEnd) : input;
+
+    // If we never found a safe cut and we're still inside a string, close it
+    // so a partial trailing value at least parses as a (truncated) string.
+    if (lastSafeEnd <= 0 && inStr) body += '"';
+
+    // Drop a trailing comma if our cut landed right before one.
+    body = body.replace(/,\s*$/, '');
+
+    // Close every structural char still on the stack, innermost first.
+    while (stack.length) body += stack.pop();
+
+    return body;
+}
+
 class EnhancedAIService {
     constructor() {
         this.aiProviderManager = aiProviderManager;
@@ -34,7 +95,7 @@ class EnhancedAIService {
             // Call the AI provider with proper options (same way as chat.js)
             const response = await provider.chat(messages, {
                 model: modelName,
-                max_tokens: options.maxTokens || 3000,
+                max_tokens: options.maxTokens || 8000,
                 temperature: options.temperature || 0.3 // Lower temperature for more consistent JSON
             });
 
@@ -72,7 +133,7 @@ class EnhancedAIService {
 
                         const response = await provider.chat(messages, {
                             model: modelName,
-                            max_tokens: options.maxTokens || 3000,
+                            max_tokens: options.maxTokens || 8000,
                             temperature: options.temperature || 0.3
                         });
 
@@ -202,32 +263,51 @@ Begin your response with { and end with }`;
                 .replace(/\s+/g, ' ') // Normalize multiple spaces
                 .trim();
 
-            // Try to find JSON in the response - look for the outermost braces
+            // Try to find JSON in the response — look for the outermost braces.
+            // String-aware walk so braces inside string literals are ignored.
             let startIdx = cleanResponse.indexOf('{');
             let endIdx = -1;
+            let truncated = false;
 
             if (startIdx !== -1) {
-                // Find the matching closing brace
-                let braceCount = 0;
+                let depth = 0;
+                let inStr = false;
+                let escape = false;
                 for (let i = startIdx; i < cleanResponse.length; i++) {
-                    if (cleanResponse[i] === '{') braceCount++;
-                    else if (cleanResponse[i] === '}') {
-                        braceCount--;
-                        if (braceCount === 0) {
-                            endIdx = i + 1;
-                            break;
-                        }
+                    const ch = cleanResponse[i];
+                    if (inStr) {
+                        if (escape) { escape = false; continue; }
+                        if (ch === '\\') { escape = true; continue; }
+                        if (ch === '"') inStr = false;
+                        continue;
                     }
+                    if (ch === '"') { inStr = true; continue; }
+                    if (ch === '{') depth++;
+                    else if (ch === '}') { depth--; if (depth === 0) { endIdx = i + 1; break; } }
                 }
             }
 
-            if (startIdx === -1 || endIdx === -1) {
-                console.warn('⚠️ No valid JSON structure found in response');
+            if (startIdx === -1) {
+                console.warn('⚠️ No JSON object found in response');
                 console.log('📝 Cleaned response:', cleanResponse.substring(0, 500));
                 throw new Error('No JSON structure found');
             }
 
+            // Truncation case: matching close-brace never found. Repair the JSON
+            // by closing whatever is open (string, array, object) so we keep
+            // partial output instead of failing the whole generation.
+            if (endIdx === -1) {
+                truncated = true;
+                console.warn('⚠️ JSON appears truncated — attempting repair');
+                const repaired = repairTruncatedJson(cleanResponse.slice(startIdx));
+                cleanResponse = cleanResponse.slice(0, startIdx) + repaired;
+                endIdx = cleanResponse.length;
+            }
+
             const jsonStr = cleanResponse.substring(startIdx, endIdx);
+            if (truncated) {
+                console.log(`🔧 Repaired JSON length: ${jsonStr.length}`);
+            }
             console.log('📋 Extracted JSON length:', jsonStr.length);
             console.log('📋 Extracted JSON preview:', jsonStr.substring(0, 300) + '...');
 
@@ -352,25 +432,27 @@ Begin your response with { and end with }`;
         }
     }
 
-    // Individual generation methods for use in controllers
+    // Individual generation methods for use in controllers.
+    // maxTokens defaults are sized so a full structure rarely truncates mid-output.
     async generateSummary(text, options = {}) {
         console.log('📝 Generating summary...');
         const prompt = this.createSummaryPrompt(text);
-        const response = await this.callAIProvider(prompt, options);
+        const response = await this.callAIProvider(prompt, { maxTokens: 4000, ...options });
         return this.parseJSONResponse(response, 'summary');
     }
 
     async generateQuiz(text, options = {}) {
         console.log('❓ Generating quiz...');
         const prompt = this.createQuizPrompt(text);
-        const response = await this.callAIProvider(prompt, options);
+        // Quiz: 8-12 MCQs × ~150 tokens each + explanations -> needs real headroom
+        const response = await this.callAIProvider(prompt, { maxTokens: 12000, ...options });
         return this.parseJSONResponse(response, 'quiz');
     }
 
     async generateFlashcards(text, options = {}) {
         console.log('🗂️ Generating flashcards...');
         const prompt = this.createFlashcardsPrompt(text);
-        const response = await this.callAIProvider(prompt, options);
+        const response = await this.callAIProvider(prompt, { maxTokens: 8000, ...options });
         return this.parseJSONResponse(response, 'flashcards');
     }
 

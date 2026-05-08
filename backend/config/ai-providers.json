@@ -4,14 +4,16 @@
         "gemini": {
             "name": "Google Gemini",
             "enabled": true,
-            "apiKey": "AIzaSyB_k0vZ8og9wbowt_6eqk_DQv3-zv605z0",
+            "apiKey": "",
             "models": {
                 "chat": {
-                    "primary": "gemini-2.0-flash",
+                    "primary": "gemini-2.5-flash",
                     "alternatives": [
+                        "gemini-3.1-pro-preview",
+                        "gemini-3.1-flash-lite-preview",
+                        "gemini-3-flash-preview",
                         "gemini-2.5-pro",
-                        "gemini-2.5-pro-1p-freebie",
-                        "gemini-pro"
+                        "gemini-2.0-flash"
                     ]
                 },
                 "embedding": {

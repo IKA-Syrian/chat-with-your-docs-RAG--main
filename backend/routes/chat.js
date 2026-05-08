@@ -692,21 +692,40 @@ IMPORTANT INSTRUCTIONS:
         } catch (aiError) {
             console.error('AI service error:', aiError);
 
-            // Get available providers for error message
             const availableProviders = aiProviderManager.getAvailableProviders();
+            const msg = String(aiError?.message || '');
+            const status = aiError?.status ?? aiError?.statusCode;
+            // Detect transient overload errors so the UI can show a useful
+            // "try again in a moment" instead of a generic 500.
+            const isOverloaded =
+                status === 503 || status === 429 ||
+                /\b(503|429)\b/.test(msg) ||
+                /service unavailable|overloaded|high demand|temporar(?:y|ily)|rate.?limit|exceeded.*quota/i.test(msg);
 
             if (availableProviders.length === 0) {
-                res.status(500).json({
+                return res.status(500).json({
                     error: 'No AI providers configured',
                     details: 'Please configure at least one AI provider in the backend configuration.'
                 });
-            } else {
-                res.status(500).json({
-                    error: 'Error communicating with AI service',
-                    details: aiError.message,
-                    availableProviders
-                });
             }
+
+            if (isOverloaded) {
+                // 503 with Retry-After is the right shape for transient overload.
+                return res.status(503)
+                    .set('Retry-After', '15')
+                    .json({
+                        error: 'AI provider is currently overloaded',
+                        details: 'Google Gemini is rate-limiting or returning 503 right now. The server already retried + tried fallback models. Please wait a few seconds and try again, or switch to another provider/model in AI Settings.',
+                        transient: true,
+                        availableProviders
+                    });
+            }
+
+            return res.status(500).json({
+                error: 'Error communicating with AI service',
+                details: msg,
+                availableProviders
+            });
         }
     } catch (error) {
         console.error('Chat error:', error);
@@ -1144,10 +1163,19 @@ const MODEL_PRICING = {
     'gpt-4':                     { input: 30.00, output: 60.00 },
     'gpt-3.5-turbo':             { input: 0.50,  output: 1.50 },
     // Google Gemini
-    'gemini-2.0-flash':          { input: 0.10,  output: 0.40 },
-    'gemini-1.5-flash':          { input: 0.075, output: 0.30 },
-    'gemini-1.5-pro':            { input: 1.25,  output: 5.00 },
-    'gemini-pro':                { input: 0.50,  output: 1.50 },
+    // Gemini — newest first. Preview pricing is best-effort; replace once
+    // Google publishes official 3.x rates.
+    'gemini-3.1-pro-preview':       { input: 1.25,  output: 10.00 }, // mirror 2.5 Pro until Google posts 3.1 pricing
+    'gemini-3.1-flash-lite-preview':{ input: 0.10,  output: 0.40 },  // closest existing chat model to "3.1 flash"
+    'gemini-3-flash-preview':       { input: 0.30,  output: 2.50 },  // mirror 2.5 Flash
+    'gemini-2.5-pro':               { input: 1.25,  output: 10.00 },
+    'gemini-2.5-flash':             { input: 0.30,  output: 2.50 },
+    'gemini-2.5-flash-lite':        { input: 0.10,  output: 0.40 },
+    'gemini-2.0-flash':             { input: 0.10,  output: 0.40 },
+    'gemini-2.0-flash-lite':        { input: 0.075, output: 0.30 },
+    'gemini-1.5-flash':             { input: 0.075, output: 0.30 },
+    'gemini-1.5-pro':               { input: 1.25,  output: 5.00 },
+    'gemini-pro':                   { input: 0.50,  output: 1.50 },
     // Claude (defaults if used via OpenRouter)
     'claude-3-5-sonnet-20241022':{ input: 3.00,  output: 15.00 },
     'claude-3-haiku-20240307':   { input: 0.25,  output: 1.25 }

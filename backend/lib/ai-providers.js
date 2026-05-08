@@ -7,6 +7,23 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * Classify a chat error as transient (retry-worthy) vs. permanent.
+ * Transient: 5xx server errors, 429 rate limit, network/timeout errors.
+ * Permanent: 4xx other than 429 — auth, model-not-found, invalid request.
+ */
+function isTransientChatError(err) {
+    if (!err) return false;
+    const status = err.status ?? err.statusCode ?? null;
+    if (status === 429 || (status >= 500 && status <= 599)) return true;
+    const msg = String(err.message || '');
+    if (/\b50\d\b/.test(msg)) return true;                    // "[503 ...]" patterns
+    if (/\b429\b/.test(msg)) return true;
+    if (/service unavailable|temporar(?:y|ily)|overloaded|high demand|exceeded.*quota|rate.?limit/i.test(msg)) return true;
+    if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'ENOTFOUND' || err.code === 'EAI_AGAIN') return true;
+    return false;
+}
+
 class AIProviderManager {
     constructor() {
         this.config = this.loadConfig();
@@ -189,7 +206,53 @@ class AIProvider {
         this.config = config;
     }
 
+    /**
+     * Chat with retry-on-transient + automatic model fallback.
+     *
+     * Retry policy:
+     *   - 503 Service Unavailable / 429 Too Many Requests / network errors:
+     *     retry up to 2 times with 600ms / 1800ms backoff on the same model.
+     *   - If all retries on the requested model fail with a transient error,
+     *     fall through to the next model in `config.models.chat.alternatives`
+     *     (one attempt each). Final non-transient error or last-model failure
+     *     bubbles up.
+     *   - 4xx responses other than 429 are NOT retried — they're caller errors
+     *     (auth, model not found, invalid request) and retrying won't help.
+     */
     async chat(messages, options = {}) {
+        const requested = options.model || this.config.models?.chat?.primary;
+        const alternatives = this.config.models?.chat?.alternatives || [];
+
+        // Models to try in order. Skip duplicates.
+        const tryModels = [requested, ...alternatives].filter((m, i, a) => m && a.indexOf(m) === i);
+
+        let lastErr;
+        for (let mi = 0; mi < tryModels.length; mi++) {
+            const model = tryModels[mi];
+            const attempts = mi === 0 ? 3 : 1;   // primary gets 3 tries; fallbacks get 1 each
+            for (let attempt = 0; attempt < attempts; attempt++) {
+                try {
+                    return await this.chatOnce(messages, { ...options, model });
+                } catch (err) {
+                    lastErr = err;
+                    if (!isTransientChatError(err)) throw err;   // non-transient: bail immediately
+                    const isLastAttempt = attempt === attempts - 1 && mi === tryModels.length - 1;
+                    if (isLastAttempt) break;
+                    if (attempt < attempts - 1) {
+                        const backoff = 600 * Math.pow(3, attempt); // 600ms, 1800ms
+                        console.warn(`⚠️ Transient chat error on ${model} (attempt ${attempt + 1}/${attempts}): ${err.message?.slice(0, 120)}. Retrying in ${backoff}ms…`);
+                        await new Promise(r => setTimeout(r, backoff));
+                    } else if (mi < tryModels.length - 1) {
+                        console.warn(`⚠️ ${model} exhausted retries. Falling back to ${tryModels[mi + 1]}.`);
+                    }
+                }
+            }
+        }
+        throw lastErr || new Error(`All chat models exhausted for provider ${this.id}`);
+    }
+
+    /** One chat attempt — dispatch to the per-provider implementation. */
+    async chatOnce(messages, options = {}) {
         switch (this.id) {
             case 'gemini':
                 return this.chatWithGemini(messages, options);

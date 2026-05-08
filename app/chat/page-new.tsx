@@ -856,22 +856,8 @@ export default function ChatPageNew() {
                           </div>
                         )}
 
-                        <div className="flex items-center justify-between gap-2 text-xs mt-1 opacity-70">
-                          <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
-                          {/* Feature 2: token + cost badge */}
-                          {message.role === 'assistant' && message.usage && (
-                            <span
-                              className="font-mono"
-                              title={`${message.usage.prompt_tokens || 0} prompt + ${message.usage.completion_tokens || 0} completion${message.usage.estimated ? ' (estimated)' : ''}${message.model ? ` · ${message.model}` : ''}`}
-                            >
-                              {message.usage.total_tokens || 0} tok
-                              {typeof message.usage.cost_usd === 'number' && (
-                                <> · ${message.usage.cost_usd < 0.01
-                                  ? message.usage.cost_usd.toFixed(5)
-                                  : message.usage.cost_usd.toFixed(4)}</>
-                              )}
-                            </span>
-                          )}
+                        <div className="text-xs mt-1 opacity-70">
+                          {new Date(message.timestamp).toLocaleTimeString()}
                         </div>
                       </div>
                     </div>
