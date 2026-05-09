@@ -2,8 +2,10 @@
 -- Spaced-repetition: materialize flashcards into rows and track per-user FSRS state.
 -- Additive: documents.flashcards JSON stays untouched for backward compat.
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- for gen_random_uuid()
+
 CREATE TABLE IF NOT EXISTS flashcards (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id     UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     front           TEXT NOT NULL,
     back            TEXT NOT NULL,
@@ -35,7 +37,7 @@ CREATE POLICY "fc_delete_own" ON flashcards FOR DELETE USING (
 
 -- Per-user-per-card FSRS state. Owns scheduling; flashcards row stays content-only.
 CREATE TABLE IF NOT EXISTS flashcard_reviews (
-    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     flashcard_id  UUID NOT NULL REFERENCES flashcards(id) ON DELETE CASCADE,
     user_id       UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     -- FSRS state

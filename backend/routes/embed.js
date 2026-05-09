@@ -11,6 +11,7 @@ import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import aiProviderManager from '../lib/ai-providers.js';
 
 const router = Router();
 const LOG_DIR = path.join(process.cwd(), 'logs');
@@ -478,49 +479,60 @@ async function createOpenRouterEmbedding(text) {
 async function createGeminiEmbedding(text) {
     logger.log('Creating Gemini embedding', { textLength: text.length });
 
-    // Ensure we have an API key
-    if (!process.env.GEMINI_API_KEY) {
+    // Pull the API key from env OR from ai-providers.json (loaded by manager).
+    const apiKey =
+        process.env.GEMINI_API_KEY ||
+        aiProviderManager?.config?.providers?.gemini?.apiKey;
+
+    if (!apiKey) {
         logger.error('Google Gemini API key not configured');
         throw new Error('Google Gemini API key not configured');
     }
 
-    try {
-        logger.log('Initializing GoogleGenAI client');
+    // SDK requires `new GoogleGenerativeAI(apiKey)` — passing { apiKey } object
+    // creates a client that fails on every call. Pass the string directly.
+    const genAI = new GoogleGenerativeAI(apiKey);
 
-        // Initialize the Gemini AI SDK using the exact format from the example
-        const genAI = new GoogleGenerativeAI({ apiKey: process.env.GEMINI_API_KEY });
+    // Models confirmed available via v1beta listModels (May 2026).
+    const candidates = [
+        process.env.GEMINI_EMBEDDINGS_MODEL,
+        'gemini-embedding-2',
+        'gemini-embedding-001',
+        'gemini-embedding-2-preview'
+    ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
-        // Get the model from environment variable or use default
-        const embeddingModel = process.env.GEMINI_EMBEDDINGS_MODEL || 'models/embedding-001';
-        logger.log('Using Gemini embedding model:', embeddingModel);
+    // The pgvector column is vector(384). The gemini-embedding-* family
+    // defaults to 3072 dims; outputDimensionality returns a 384-dim
+    // semantic embedding directly (no lossy down-projection).
+    const TARGET_DIMS = 384;
 
-        // Request the embedding using the format from the example
-        logger.log('Making request to Gemini Embedding API');
-        const response = await genAI.embedContent(embeddingModel, {
-            text: text.trim()
-        });
-
-        logger.log('Gemini raw response:', {
-            responseType: typeof response,
-            hasEmbedding: !!response.embedding
-        });
-
-        // Check if embeddings exist
-        if (!response || !response.embedding || response.embedding.length === 0) {
-            logger.error('Gemini API returned empty embeddings', response);
-            throw new Error('Gemini API returned empty embeddings');
+    for (const modelName of candidates) {
+        try {
+            logger.log(`Trying Gemini embedding model: ${modelName} (dims=${TARGET_DIMS})`);
+            const model = genAI.getGenerativeModel({ model: modelName });
+            const response = await model.embedContent({
+                content: { parts: [{ text: text.trim() }] },
+                outputDimensionality: TARGET_DIMS
+            });
+            const values = response?.embedding?.values;
+            if (Array.isArray(values) && values.length > 0) {
+                logger.log(`Gemini embedding created (${values.length} dims) via ${modelName}`);
+                return values;
+            }
+            logger.error(`Gemini ${modelName} returned no embedding values`);
+        } catch (error) {
+            const msg = error?.message || '';
+            if (/404|not.*found|not.*supported/i.test(msg)) {
+                logger.log(`${modelName} unavailable, trying next…`);
+                continue;
+            }
+            logger.error(`Error creating Gemini embedding on ${modelName}:`, msg);
+            break;
         }
-
-        logger.log('Gemini embedding created successfully', {
-            vectorLength: response.embedding.length
-        });
-
-        return response.embedding;
-    } catch (error) {
-        logger.error('Error creating Gemini embedding:', error);
-        logger.log('Falling back to simple embeddings due to Gemini error');
-        return createSimpleEmbedding(text);
     }
+
+    logger.log('All Gemini models failed, falling back to simple embeddings');
+    return createSimpleEmbedding(text);
 }
 
 // Alternative route for OpenAI embeddings (if API key is available)

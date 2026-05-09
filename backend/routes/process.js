@@ -68,12 +68,62 @@ try {
     }
 }
 
+// pptx2json exports the constructor function directly (no `default` wrapper).
+// Loading via createRequire because the package isn't ESM-friendly.
 let pptxParser = null;
 try {
-    const { default: _pptx } = await import('pptx2json');
-    pptxParser = _pptx;
+    const { createRequire } = await import('module');
+    const req = createRequire(import.meta.url);
+    pptxParser = req('pptx2json');
     console.log('✅ pptx2json loaded');
-} catch { console.log('⚠️ pptx2json not installed – PPTX support disabled'); }
+} catch (e) {
+    console.log('⚠️ pptx2json not installed – PPTX support disabled:', e?.message || '');
+}
+
+/**
+ * Extract human-readable text from a parsed pptx2json structure.
+ * pptx2json returns an object keyed by zip-internal paths; slides live at
+ * `ppt/slides/slide{N}.xml`. The XML JSON has `<a:t>` elements (text runs)
+ * which appear as `a:t` keys whose value is an array of strings.
+ *
+ * @param {Record<string, any>} pptxJson buffer2json output
+ * @returns {string} all slide text joined with double newlines
+ */
+function extractTextFromPptxJson(pptxJson) {
+    if (!pptxJson || typeof pptxJson !== 'object') return '';
+
+    const slideKeys = Object.keys(pptxJson)
+        .filter(k => /^ppt\/slides\/slide\d+\.xml$/.test(k))
+        .sort((a, b) => {
+            const na = parseInt(a.match(/slide(\d+)\.xml$/)[1], 10);
+            const nb = parseInt(b.match(/slide(\d+)\.xml$/)[1], 10);
+            return na - nb;
+        });
+
+    const collectAt = (node, out) => {
+        if (node == null) return;
+        if (Array.isArray(node)) { for (const v of node) collectAt(v, out); return; }
+        if (typeof node === 'object') {
+            for (const [k, v] of Object.entries(node)) {
+                if (k === 'a:t') {
+                    if (Array.isArray(v)) v.forEach(s => typeof s === 'string' && out.push(s));
+                    else if (typeof v === 'string') out.push(v);
+                    else collectAt(v, out);
+                } else {
+                    collectAt(v, out);
+                }
+            }
+        }
+    };
+
+    const slides = [];
+    for (const key of slideKeys) {
+        const runs = [];
+        collectAt(pptxJson[key], runs);
+        if (runs.length > 0) slides.push(runs.join(' '));
+    }
+    return slides.join('\n\n');
+}
 
 // Create logs directory if it doesn't exist
 if (!fs.existsSync(LOG_DIR)) {
@@ -314,32 +364,54 @@ async function createEmbedding(text) {
             }
         }
 
-        // Try Gemini if available
-        if (process.env.GEMINI_API_KEY) {
-            try {
-                console.log('🤖 Creating embedding with Gemini...');
-                // Use the model name from env variables
-                const embedModel = process.env.GEMINI_EMBEDDINGS_MODEL || "models/embedding-001";
-                console.log(`Using Gemini embedding model: ${embedModel}`);
+        // Try Gemini if available. The API key may live either in the env or
+        // in the ai-providers.json (loaded by aiProviderManager).
+        const geminiKey =
+            process.env.GEMINI_API_KEY ||
+            aiProviderManager?.config?.providers?.gemini?.apiKey;
 
-                // Initialize the Gemini AI client
-                const { GoogleGenerativeAI } = await import('@google/generative-ai');
-                const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        if (geminiKey) {
+            // Models confirmed available via v1beta listModels (May 2026).
+            // Order: latest stable first, then numbered alternates / preview.
+            const candidates = [
+                process.env.GEMINI_EMBEDDINGS_MODEL,
+                'gemini-embedding-2',
+                'gemini-embedding-001',
+                'gemini-embedding-2-preview'
+            ].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 
-                // Create embedding
-                const response = await genAI.embedContent(embedModel, {
-                    text: truncatedText
-                });
+            const { GoogleGenerativeAI } = await import('@google/generative-ai');
+            const genAI = new GoogleGenerativeAI(geminiKey);
 
-                if (response && response.embedding) {
-                    console.log('✅ Gemini embedding created successfully');
-                    return normalizeEmbedding(response.embedding);
-                } else {
-                    console.error('❌ Gemini embedding returned invalid response:', response);
+            // The pgvector column is vector(384). gemini-embedding-* defaults
+            // to 3072 dims; passing outputDimensionality returns a real
+            // 384-dim semantic embedding directly (no lossy projection).
+            const TARGET_DIMS = 384;
+
+            for (const modelName of candidates) {
+                try {
+                    console.log(`🤖 Trying Gemini embedding model: ${modelName} (dims=${TARGET_DIMS})`);
+                    const model = genAI.getGenerativeModel({ model: modelName });
+                    const response = await model.embedContent({
+                        content: { parts: [{ text: truncatedText }] },
+                        outputDimensionality: TARGET_DIMS
+                    });
+                    const values = response?.embedding?.values;
+                    if (Array.isArray(values) && values.length > 0) {
+                        console.log(`✅ Gemini embedding created (${values.length} dims) via ${modelName}`);
+                        // The API already returned the exact size we need; no normalize step.
+                        return values;
+                    }
+                    console.warn(`⚠️  Gemini ${modelName} returned no embedding values`);
+                } catch (geminiError) {
+                    const msg = geminiError?.message || '';
+                    if (/404|not.*found|not.*supported/i.test(msg)) {
+                        console.log(`   ↪ ${modelName} unavailable, trying next…`);
+                        continue;
+                    }
+                    console.error(`❌ Gemini embedding failed on ${modelName}:`, msg);
+                    break;
                 }
-            } catch (geminiError) {
-                console.error('❌ Gemini embedding failed:', geminiError.message);
-                // Continue to fallback
             }
         }
 
@@ -790,13 +862,11 @@ router.post('/', async (req, res) => {
         } else if ((fileType.includes('application/vnd.openxmlformats-officedocument.presentationml.presentation') || fileExtension === 'pptx' || fileExtension === 'ppt') && pptxParser) {
             console.log('📄 Parsing PPTX content');
             try {
-                const tmpPath = path.join(os.tmpdir(), `${Date.now()}.pptx`);
-                fs.writeFileSync(tmpPath, fileContent);
+                // pptx2json exposes buffer2json — no temp file needed.
                 const parser = new pptxParser();
-                const slides = await parser.parse(tmpPath);
-                text = slides.map(s => s.text).join('\n\n');
-                fs.unlinkSync(tmpPath);
-                console.log('✅ PPTX parsed, length:', text.length);
+                const pptxJson = await parser.buffer2json(fileContent);
+                text = extractTextFromPptxJson(pptxJson);
+                console.log(`✅ PPTX parsed, ${text.length} chars across ${Object.keys(pptxJson).filter(k => /^ppt\/slides\/slide\d+\.xml$/.test(k)).length} slides`);
             } catch (e) {
                 console.error('❌ PPTX parse failed:', e.message);
                 text = '';

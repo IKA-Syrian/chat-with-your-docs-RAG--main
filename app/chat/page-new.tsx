@@ -269,17 +269,30 @@ export default function ChatPageNew() {
     }
   }, [documentId, isNewChat, conversationId, isAuthenticated, router]);
 
-  // Load conversation messages when conversation data changes
+  // Load conversation messages when conversation data changes.
+  // Restores sources / usage / model so a page reload renders the same
+  // citations footer + token badge that the user saw originally.
   useEffect(() => {
     if (conversationData?.messages && conversationData.messages.length > 0) {
-      setMessages(conversationData.messages.map(msg => ({
+      setMessages(conversationData.messages.map((msg: any) => ({
         id: msg.id || String(Date.now()),
         content: msg.content,
         role: msg.role,
-        timestamp: msg.created_at
+        timestamp: msg.created_at,
+        sources: Array.isArray(msg.sources) ? msg.sources : (msg.sources ?? undefined),
+        usage: msg.usage ?? undefined,
+        model: msg.model ?? undefined,
+        provider: msg.provider ?? undefined
       })));
+
+      // If the most recent assistant message has sources, surface them in the
+      // sources side-panel too so the user can re-open it without sending a
+      // new message.
+      const lastAssistant = [...conversationData.messages].reverse().find((m: any) => m.role === 'assistant');
+      if (lastAssistant?.sources && Array.isArray(lastAssistant.sources) && lastAssistant.sources.length > 0) {
+        setCurrentSources(lastAssistant.sources);
+      }
     } else if (conversationData?.messages) {
-      // If conversation exists but has no messages, set empty array
       setMessages([]);
     }
   }, [conversationData]);

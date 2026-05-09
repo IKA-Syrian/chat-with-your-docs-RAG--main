@@ -1,8 +1,10 @@
 -- 2026-05-06-009-mistake-journal.sql
 -- Phase 3 #9: unified mistake journal across quiz / flashcard / short-answer.
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- for gen_random_uuid()
+
 CREATE TABLE IF NOT EXISTS wrong_answers (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     document_id     UUID REFERENCES documents(id) ON DELETE CASCADE,
     source_kind     TEXT NOT NULL CHECK (source_kind IN ('quiz', 'flashcard', 'short_answer')),

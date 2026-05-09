@@ -21,12 +21,36 @@ const router = Router();
 const YT_HOSTS = ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'music.youtube.com'];
 const MAX_FETCH_BYTES = 5 * 1024 * 1024;          // 5 MB cap
 const FETCH_TIMEOUT_MS = 15_000;
-const REQUEST_UA = 'Mozilla/5.0 (compatible; StudyAI-bot/1.0)';
+// Pretend to be a real Chrome on Windows. YouTube serves a different
+// (often captionless) page to anything that looks like a bot, so the
+// "compatible; StudyAI-bot" UA we used previously was being filtered.
+const REQUEST_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36';
 
+// Bypasses YouTube's EU cookie-consent gate that otherwise serves a
+// captionless landing page until the user accepts cookies.
+const YT_CONSENT_COOKIE = 'CONSENT=YES+cb.20240101-00-p0.en+FX+000; SOCS=CAI';
+
+/**
+ * Forgiving URL parser. Strips whitespace, surrounding quotes (common when
+ * users copy-paste from chat apps), and auto-prepends https:// when no
+ * protocol is present (so `youtube.com/watch?v=...` works).
+ */
 function parseUrl(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    let cleaned = raw.trim()
+        .replace(/^["'<\s]+|["'>\s]+$/g, '')   // strip surrounding quotes / brackets / whitespace
+        .replace(/\s+/g, '');                   // strip any remaining whitespace
+    if (!cleaned) return null;
+
+    // Auto-prepend https:// if no protocol. Reject obviously-non-URL strings.
+    if (!/^https?:\/\//i.test(cleaned)) {
+        // Don't prepend if it looks like a local path or has no dot.
+        if (cleaned.startsWith('//')) cleaned = 'https:' + cleaned;
+        else if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(cleaned)) cleaned = 'https://' + cleaned;
+        else return null;
+    }
     try {
-        const u = new URL(raw);
-        return u;
+        return new URL(cleaned);
     } catch {
         return null;
     }
@@ -99,7 +123,12 @@ async function fetchWithLimit(url, opts = {}) {
         const res = await fetch(url, {
             ...opts,
             signal: ctrl.signal,
-            headers: { 'User-Agent': REQUEST_UA, 'Accept': 'text/html,*/*;q=0.8', ...(opts.headers || {}) }
+            headers: {
+                'User-Agent': REQUEST_UA,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                ...(opts.headers || {})
+            }
         });
         if (!res.ok) throw new Error(`Upstream HTTP ${res.status}`);
 
@@ -188,33 +217,198 @@ function extractBalancedArray(source, startIdx) {
     return null;
 }
 
-async function fetchYouTubeTranscript(videoId) {
-    const watch = `https://www.youtube.com/watch?v=${videoId}`;
-    const { text: html } = await fetchWithLimit(watch);
-
-    // Find the `"captionTracks":` key, then extract the balanced array following it.
-    const keyIdx = html.indexOf('"captionTracks":');
-    if (keyIdx < 0) return { transcript: null, title: extractTitle(html) };
-    const arrStart = html.indexOf('[', keyIdx);
-    if (arrStart < 0) return { transcript: null, title: extractTitle(html) };
-    const arrSlice = extractBalancedArray(html, arrStart);
-    if (!arrSlice) return { transcript: null, title: extractTitle(html) };
-
-    let tracks;
-    try {
-        tracks = JSON.parse(arrSlice.replace(/\\u0026/g, '&'));
-    } catch {
-        return { transcript: null, title: extractTitle(html) };
+/**
+ * Walk forward from index `i` looking for a balanced `{...}` JSON object.
+ * String-aware: braces inside string literals don't count.
+ */
+function extractBalancedObject(source, startIdx) {
+    if (source[startIdx] !== '{') return null;
+    let depth = 0, inStr = false, escape = false;
+    for (let i = startIdx; i < source.length; i++) {
+        const ch = source[i];
+        if (inStr) {
+            if (escape) { escape = false; continue; }
+            if (ch === '\\') { escape = true; continue; }
+            if (ch === '"') inStr = false;
+            continue;
+        }
+        if (ch === '"') { inStr = true; continue; }
+        if (ch === '{') depth++;
+        else if (ch === '}') { depth--; if (depth === 0) return source.slice(startIdx, i + 1); }
     }
-    if (!Array.isArray(tracks) || tracks.length === 0) return { transcript: null, title: extractTitle(html) };
+    return null;
+}
 
-    // Prefer English; fall back to the first track.
-    const track = tracks.find(t => /en/i.test(t.languageCode || '')) || tracks[0];
-    const trackUrl = (track.baseUrl || '').replace(/\\u0026/g, '&');
-    if (!trackUrl) return { transcript: null, title: extractTitle(html) };
+/**
+ * Pull the captionTracks array out of the YouTube watch page HTML.
+ * Tries multiple paths because YouTube's HTML changes regularly:
+ *   1. Direct `"captionTracks":[...]` substring (fastest path).
+ *   2. Inside the `ytInitialPlayerResponse` JSON blob, traversed
+ *      via .captions.playerCaptionsTracklistRenderer.captionTracks.
+ *   3. Inside the older `ytplayer.config.args.player_response` JSON.
+ * Returns an array (possibly empty) of track objects.
+ */
+function extractCaptionTracks(html) {
+    // Path 1: literal key
+    {
+        const keyIdx = html.indexOf('"captionTracks":');
+        if (keyIdx >= 0) {
+            const arrStart = html.indexOf('[', keyIdx);
+            if (arrStart >= 0) {
+                const arrSlice = extractBalancedArray(html, arrStart);
+                if (arrSlice) {
+                    try {
+                        const tracks = JSON.parse(arrSlice.replace(/\\u0026/g, '&'));
+                        if (Array.isArray(tracks) && tracks.length > 0) return tracks;
+                    } catch { /* fall through */ }
+                }
+            }
+        }
+    }
 
-    const { text: xml } = await fetchWithLimit(trackUrl);
-    // The endpoint returns XML like <text start="..." dur="...">caption</text>
+    // Path 2: ytInitialPlayerResponse = {...};
+    for (const marker of ['var ytInitialPlayerResponse = ', 'ytInitialPlayerResponse = ']) {
+        const idx = html.indexOf(marker);
+        if (idx < 0) continue;
+        const objStart = html.indexOf('{', idx);
+        if (objStart < 0) continue;
+        const objSlice = extractBalancedObject(html, objStart);
+        if (!objSlice) continue;
+        try {
+            const obj = JSON.parse(objSlice);
+            const tracks = obj?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+            if (Array.isArray(tracks) && tracks.length > 0) return tracks;
+        } catch { /* fall through */ }
+    }
+
+    // Path 3: legacy ytplayer.config
+    const cfg = html.indexOf('ytplayer.config');
+    if (cfg >= 0) {
+        const prKey = html.indexOf('"player_response":"', cfg);
+        if (prKey >= 0) {
+            const valStart = prKey + '"player_response":"'.length;
+            const valEnd = html.indexOf('"', valStart);
+            if (valEnd > valStart) {
+                const escaped = html.slice(valStart, valEnd);
+                try {
+                    // player_response is a JSON-stringified JSON string
+                    const inner = JSON.parse('"' + escaped + '"');
+                    const obj = JSON.parse(inner);
+                    const tracks = obj?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+                    if (Array.isArray(tracks) && tracks.length > 0) return tracks;
+                } catch { /* fall through */ }
+            }
+        }
+    }
+
+    return [];
+}
+
+/**
+ * Primary path: the `youtube-transcript` npm package. It maintains workarounds
+ * for YouTube's evolving anti-scraping (PoToken, signed-URL changes, etc.)
+ * which our manual scraper can't keep up with. If the package is missing or
+ * fails, fall through to the manual scraper below.
+ */
+async function fetchYouTubeTranscriptViaPackage(videoId) {
+    let mod;
+    try {
+        mod = await import('youtube-transcript');
+    } catch {
+        return null; // package not installed
+    }
+    const YT = mod.YoutubeTranscript || mod.default?.YoutubeTranscript;
+    if (!YT) return null;
+
+    // Try English first; fall back to whatever's available.
+    let segments = null;
+    try {
+        segments = await YT.fetchTranscript(videoId, { lang: 'en' });
+    } catch {
+        try {
+            segments = await YT.fetchTranscript(videoId);
+        } catch (e) {
+            console.warn(`[youtube-transcript] both attempts failed: ${e.message}`);
+            return null;
+        }
+    }
+    if (!Array.isArray(segments) || segments.length === 0) return null;
+
+    const text = segments
+        .map(s => (s.text || '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .join('\n');
+    return text || null;
+}
+
+async function fetchYouTubeTranscript(videoId) {
+    // 1) Try the maintained npm package first.
+    try {
+        const pkgTranscript = await fetchYouTubeTranscriptViaPackage(videoId);
+        if (pkgTranscript) {
+            console.log(`[fetchYouTubeTranscript] npm package returned ${pkgTranscript.length} chars for ${videoId}`);
+            // Best-effort title from the watch page (not critical).
+            let title = null;
+            try {
+                const { text: html } = await fetchWithLimit(`https://www.youtube.com/watch?v=${videoId}&hl=en`, {
+                    headers: { Cookie: YT_CONSENT_COOKIE }
+                });
+                const m = html.match(/"title":"([^"\\]+(?:\\.[^"\\]*)*)"/);
+                title = m ? m[1].replace(/\\(.)/g, '$1').slice(0, 200) : extractTitle(html);
+            } catch { /* don't fail the whole call over a missing title */ }
+            return { transcript: pkgTranscript, title: title || `YouTube video ${videoId}`, reason: 'ok_pkg' };
+        }
+    } catch (pkgErr) {
+        console.warn(`[fetchYouTubeTranscript] package path threw: ${pkgErr.message}`);
+    }
+
+    // 2) Manual scraper fallback. Increasingly broken by YouTube but kept as
+    //    a backstop in case the package version we have stops working.
+    const watch = `https://www.youtube.com/watch?v=${videoId}&hl=en`;
+    let html = '';
+    try {
+        ({ text: html } = await fetchWithLimit(watch, {
+            headers: { Cookie: YT_CONSENT_COOKIE }
+        }));
+    } catch (fetchErr) {
+        console.error('[fetchYouTubeTranscript] watch page fetch failed:', fetchErr.message);
+        throw fetchErr;
+    }
+
+    // Bail with a useful diagnostic if YouTube served a captcha / consent / "video unavailable" page.
+    if (/uxe=23983171|consent\.youtube\.com|This video isn't available|gV9rAaY9OY/i.test(html)) {
+        console.warn('[fetchYouTubeTranscript] YouTube served a non-watch page (consent/captcha/unavailable)');
+    }
+
+    const tracks = extractCaptionTracks(html);
+    console.log(`[fetchYouTubeTranscript] ${tracks.length} caption track(s) found for ${videoId}`);
+
+    if (tracks.length === 0) {
+        return { transcript: null, title: extractTitle(html), reason: 'no_tracks_found' };
+    }
+
+    // Prefer English (manual then auto-generated); fall back to the first track.
+    const score = (t) => {
+        const lc = (t.languageCode || '').toLowerCase();
+        let s = 0;
+        if (lc === 'en' || lc.startsWith('en-')) s += 100;
+        if (t.kind !== 'asr') s += 10; // prefer manual over auto-generated
+        return s;
+    };
+    const track = [...tracks].sort((a, b) => score(b) - score(a))[0];
+    const trackUrl = (track?.baseUrl || '').replace(/\\u0026/g, '&');
+    if (!trackUrl) return { transcript: null, title: extractTitle(html), reason: 'no_baseUrl' };
+
+    let xml = '';
+    try {
+        ({ text: xml } = await fetchWithLimit(trackUrl, {
+            headers: { Cookie: YT_CONSENT_COOKIE }
+        }));
+    } catch (xmlErr) {
+        console.error('[fetchYouTubeTranscript] timedtext fetch failed:', xmlErr.message);
+        return { transcript: null, title: extractTitle(html), reason: 'timedtext_fetch_failed' };
+    }
+
     const segments = [...xml.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g)]
         .map(m2 => htmlToText(m2[1]).replace(/\s+/g, ' ').trim())
         .filter(Boolean);
@@ -223,7 +417,11 @@ async function fetchYouTubeTranscript(videoId) {
     const titleMatch = html.match(/"title":"([^"\\]+(?:\\.[^"\\]*)*)"/);
     const title = titleMatch ? titleMatch[1].replace(/\\(.)/g, '$1').slice(0, 200) : extractTitle(html);
 
-    return { transcript: transcript || null, title };
+    return {
+        transcript: transcript || null,
+        title,
+        reason: transcript ? 'ok' : 'empty_transcript'
+    };
 }
 
 // ---------------------------------------------------------------------------
@@ -242,16 +440,29 @@ router.post('/from-url', async (req, res) => {
 
         const { url: rawUrl, title: titleOverride } = req.body || {};
         if (!rawUrl || typeof rawUrl !== 'string') {
+            console.warn('[from-url] rejected: missing url field');
             return res.status(400).json({ error: 'Missing url' });
         }
 
-        const u = parseUrl(rawUrl.trim());
-        if (!u || !['http:', 'https:'].includes(u.protocol)) {
-            return res.status(400).json({ error: 'Invalid URL — must be http or https' });
+        const u = parseUrl(rawUrl);
+        if (!u) {
+            console.warn(`[from-url] rejected: parseUrl returned null for input: ${JSON.stringify(rawUrl).slice(0, 200)}`);
+            return res.status(400).json({
+                error: 'Could not parse that URL. Make sure it starts with https:// (we add it for you if missing) and contains a valid domain like youtube.com or example.com/article.'
+            });
+        }
+        if (!['http:', 'https:'].includes(u.protocol)) {
+            console.warn(`[from-url] rejected: protocol "${u.protocol}" not http/https`);
+            return res.status(400).json({ error: `Unsupported protocol "${u.protocol}". Only http and https are allowed.` });
         }
         if (!(await isHostAllowed(u.hostname))) {
-            return res.status(400).json({ error: 'URL host is not allowed (private, link-local, or unresolvable)' });
+            console.warn(`[from-url] rejected: host "${u.hostname}" failed isHostAllowed (private/link-local/unresolvable)`);
+            return res.status(400).json({
+                error: `Host "${u.hostname}" couldn't be resolved or points to a private/local network.`
+            });
         }
+
+        console.log(`[from-url] accepted: ${u.toString()}`);
 
         // 1) Extract text.
         const isYouTube = YT_HOSTS.includes(u.hostname.toLowerCase());
@@ -262,15 +473,36 @@ router.post('/from-url', async (req, res) => {
         if (isYouTube) {
             sourceKind = 'youtube';
             const videoId = youtubeVideoId(u);
-            if (!videoId) return res.status(400).json({ error: 'Could not parse YouTube video id' });
-            const { transcript, title } = await fetchYouTubeTranscript(videoId);
-            if (!transcript) {
-                return res.status(422).json({
-                    error: 'No captions available for this video. Try another video or paste the transcript manually.'
+            if (!videoId) {
+                console.warn(`[from-url] YouTube: could not parse video id from ${u.toString()}`);
+                return res.status(400).json({
+                    error: `Couldn't find a video id in that YouTube URL. Use a "watch?v=..." or "youtu.be/..." link.`
                 });
             }
-            extractedText = transcript;
-            derivedTitle = title || `YouTube video ${videoId}`;
+            console.log(`[from-url] YouTube videoId: ${videoId}`);
+            try {
+                const { transcript, title, reason } = await fetchYouTubeTranscript(videoId);
+                if (!transcript) {
+                    console.warn(`[from-url] YouTube: no transcript for ${videoId} (reason=${reason})`);
+                    const reasonMsg = ({
+                        no_tracks_found: 'YouTube did not return any caption tracks for this video. Either the video has no captions, or YouTube is blocking the scrape from this server.',
+                        no_baseUrl: 'Caption track was found but had no baseUrl — YouTube returned an unexpected shape.',
+                        timedtext_fetch_failed: 'Caption track URL was found but the timedtext request failed.',
+                        empty_transcript: 'The caption track was empty.'
+                    })[reason] || 'No transcript could be extracted.';
+                    return res.status(422).json({
+                        error: reasonMsg + ' Try another video, or upload the file directly.'
+                    });
+                }
+                extractedText = transcript;
+                derivedTitle = title || `YouTube video ${videoId}`;
+                console.log(`[from-url] YouTube transcript: ${transcript.length} chars, title="${derivedTitle}"`);
+            } catch (ytErr) {
+                console.error(`[from-url] YouTube fetch threw:`, ytErr.message);
+                return res.status(502).json({
+                    error: `Could not fetch the YouTube transcript (${ytErr.message}). YouTube sometimes blocks automated requests; try again in a minute.`
+                });
+            }
         } else {
             const { text: html, contentType } = await fetchWithLimit(u.toString());
             if (contentType && !/text\/html|text\/plain|application\/xhtml/i.test(contentType)) {

@@ -291,6 +291,171 @@ class AIProvider {
         }
     }
 
+    /**
+     * Phase 3+ — answer a chat message with one or more PDFs passed inline
+     * as attachments. Last-resort fallback when chunk retrieval has returned
+     * nothing. Gemini and Claude support PDFs as inline attachments in the
+     * same call as the user prompt; OpenAI/OpenRouter require pre-rasterization
+     * and are not supported here.
+     *
+     * @param {Array<{role:string, content:string}>} messages   chat history
+     * @param {Buffer | Array<{name?: string, buffer: Buffer}>} attachments
+     *   Single Buffer or an array of { name, buffer } pairs.
+     * @param {{ documentName?: string, model?: string, max_tokens?: number, temperature?: number }} options
+     */
+    async chatWithPdfInline(messages, attachments, options = {}) {
+        // Normalise to an array of { name, buffer }.
+        const attachArr = Buffer.isBuffer(attachments)
+            ? [{ name: options.documentName || 'document.pdf', buffer: attachments }]
+            : (Array.isArray(attachments) ? attachments : []);
+
+        if (attachArr.length === 0) {
+            throw new Error('chatWithPdfInline: no attachments supplied');
+        }
+
+        switch (this.id) {
+            case 'gemini':
+                return this.chatWithPdfInlineGemini(messages, attachArr, options);
+            case 'claude':
+                return this.chatWithPdfInlineClaude(messages, attachArr, options);
+            default:
+                const err = new Error(`chatWithPdfInline not supported for provider "${this.id}"`);
+                err.code = 'INLINE_PDF_UNSUPPORTED';
+                throw err;
+        }
+    }
+
+    async chatWithPdfInlineGemini(messages, attachments, options = {}) {
+        const total = attachments.reduce((s, a) => s + (a.buffer?.length || 0), 0);
+        if (total > 30 * 1024 * 1024) {
+            const err = new Error(`PDFs total ${total} bytes — exceeds 30MB Gemini inline limit`);
+            err.code = 'INLINE_PDF_TOO_LARGE';
+            throw err;
+        }
+
+        const genAI = new GoogleGenerativeAI(this.config.apiKey);
+        const modelName = options.model || this.config.models?.chat?.primary || 'gemini-2.5-flash';
+        const model = genAI.getGenerativeModel({
+            model: modelName,
+            generationConfig: {
+                temperature: options.temperature ?? 0.4,
+                maxOutputTokens: options.max_tokens || 2000
+            }
+        });
+
+        const systemMsg = messages.find(m => m.role === 'system')?.content || '';
+        const lastUser = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+        const history = messages
+            .filter(m => m.role !== 'system' && m !== messages[messages.length - 1])
+            .map(m => `[${m.role === 'assistant' ? 'Assistant' : 'You'}] ${m.content}`)
+            .join('\n');
+
+        const attachmentList = attachments.map((a, i) => `  ${i + 1}. ${a.name || `document_${i + 1}.pdf`}`).join('\n');
+        const prompt = [
+            systemMsg && `SYSTEM:\n${systemMsg}`,
+            history && `PRIOR CONVERSATION:\n${history}`,
+            `The following ${attachments.length} PDF${attachments.length === 1 ? '' : 's'} ${attachments.length === 1 ? 'is' : 'are'} attached:\n${attachmentList}\n\nUse them directly as the document content. When information comes from a specific document, name it.`,
+            `QUESTION:\n${lastUser}`
+        ].filter(Boolean).join('\n\n');
+
+        // Build the parts array: prompt text first, then each PDF as inlineData.
+        const parts = [{ text: prompt }];
+        for (const att of attachments) {
+            parts.push({
+                inlineData: {
+                    mimeType: 'application/pdf',
+                    data: att.buffer.toString('base64')
+                }
+            });
+        }
+
+        const result = await model.generateContent(parts);
+        const response = await result.response;
+        const text = response.text();
+        const usage = response?.usageMetadata || null;
+
+        return {
+            content: text,
+            model: modelName,
+            provider: 'gemini',
+            usage: usage ? {
+                prompt_tokens: usage.promptTokenCount,
+                completion_tokens: usage.candidatesTokenCount,
+                total_tokens: usage.totalTokenCount,
+                inline_pdf: true,
+                inline_pdf_count: attachments.length
+            } : { inline_pdf: true, inline_pdf_count: attachments.length }
+        };
+    }
+
+    async chatWithPdfInlineClaude(messages, attachments, options = {}) {
+        const total = attachments.reduce((s, a) => s + (a.buffer?.length || 0), 0);
+        if (total > 32 * 1024 * 1024) {
+            const err = new Error(`PDFs total ${total} bytes — exceeds 32MB Claude inline limit`);
+            err.code = 'INLINE_PDF_TOO_LARGE';
+            throw err;
+        }
+
+        const systemMsg = messages.find(m => m.role === 'system')?.content || '';
+        const conversation = messages
+            .filter(m => m.role !== 'system')
+            .map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
+
+        const last = conversation[conversation.length - 1];
+        if (!last || last.role !== 'user') {
+            throw new Error('chatWithPdfInline requires the final message to be from the user');
+        }
+        // Build the multimodal content array: every PDF first, then the user's text.
+        const contentArr = [];
+        for (const att of attachments) {
+            contentArr.push({
+                type: 'document',
+                source: { type: 'base64', media_type: 'application/pdf', data: att.buffer.toString('base64') }
+            });
+        }
+        contentArr.push({ type: 'text', text: last.content });
+        last.content = contentArr;
+
+        const response = await fetch(this.config.endpoints.chat, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': this.config.apiKey,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify({
+                model: options.model || this.config.models.chat.primary,
+                max_tokens: options.max_tokens || 2000,
+                temperature: options.temperature ?? 0.4,
+                system: systemMsg || undefined,
+                messages: conversation
+            })
+        });
+
+        if (!response.ok) {
+            const errBody = await response.json().catch(() => ({}));
+            const err = new Error(`Claude inline-PDF chat error: ${errBody?.error?.message || response.statusText}`);
+            err.code = 'INLINE_PDF_PROVIDER_ERROR';
+            throw err;
+        }
+
+        const data = await response.json();
+        const text = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
+
+        return {
+            content: text,
+            model: options.model || this.config.models.chat.primary,
+            provider: 'claude',
+            usage: data.usage ? {
+                prompt_tokens: data.usage.input_tokens,
+                completion_tokens: data.usage.output_tokens,
+                total_tokens: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0),
+                inline_pdf: true,
+                inline_pdf_count: attachments.length
+            } : { inline_pdf: true, inline_pdf_count: attachments.length }
+        };
+    }
+
     async transcribePdfWithGemini(pdfBuffer, options = {}) {
         if (!Buffer.isBuffer(pdfBuffer)) {
             throw new Error('pdfBuffer must be a Buffer');

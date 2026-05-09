@@ -81,11 +81,13 @@ try {
     }
 }
 
-// Dynamic import for PowerPoint parser
+// Dynamic import for PowerPoint parser. pptx2json exports the constructor
+// directly — there is no `.default` on the module.
 let pptxParser;
 try {
-    const { default: _pptx } = await import('pptx2json');
-    pptxParser = _pptx;
+    const { createRequire } = await import('module');
+    const req = createRequire(import.meta.url);
+    pptxParser = req('pptx2json');
     console.log('✅ pptx2json loaded in enhanced controller');
 } catch (error) {
     console.warn('⚠️ PowerPoint parser not available in enhanced controller:', error.message);

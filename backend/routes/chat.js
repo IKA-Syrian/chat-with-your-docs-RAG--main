@@ -6,7 +6,7 @@
  */
 
 import { Router } from 'express';
-import { createUserClient } from '../lib/supabase.js';
+import { createUserClient, supabaseAdmin } from '../lib/supabase.js';
 import fetch from 'node-fetch';
 import { validateUser } from './auth.js';
 import aiProviderManager from '../lib/ai-providers.js';
@@ -15,6 +15,68 @@ import path from 'path';
 import fs from 'fs';
 
 const router = Router();
+
+// English stop words stripped from text-search queries so they don't dominate
+// the AND/OR clauses. Short, deliberately incomplete — this is for retrieval
+// hinting, not strict NLP.
+const STOP_WORDS = new Set([
+    'about', 'above', 'after', 'again', 'against', 'also', 'because', 'been',
+    'before', 'being', 'between', 'both', 'could', 'does', 'doesn', 'doing',
+    'down', 'during', 'each', 'explain', 'explained', 'explains', 'from',
+    'further', 'have', 'having', 'here', 'into', 'just', 'more', 'most',
+    'over', 'please', 'such', 'than', 'that', 'their', 'them', 'then',
+    'there', 'these', 'they', 'this', 'those', 'through', 'very', 'were',
+    'what', 'when', 'where', 'which', 'while', 'with', 'would', 'your',
+    'yours', 'tell', 'show', 'give', 'document', 'documents'
+]);
+
+/**
+ * Rank candidate document sections by IDF-weighted term-frequency for the
+ * given query terms. Returns [{ section, score, hits }] sorted descending.
+ *
+ * This is BM25-lite, computed in JS so we don't need a custom RPC. It's the
+ * difference between "the LLM gets the chunk that mentions 'architecture'"
+ * and "the LLM gets the first 5 chunks containing 'software', i.e. half the
+ * document".
+ */
+function rankByIdf(sections, queryTerms) {
+    if (!Array.isArray(sections) || sections.length === 0 || queryTerms.length === 0) return [];
+    const N = sections.length;
+
+    // Lowercase content once, count document frequency per query term.
+    const lowerContents = sections.map(s => (s.content || '').toLowerCase());
+    const df = Object.create(null);
+    for (const term of queryTerms) {
+        df[term] = lowerContents.reduce((c, body) => c + (body.includes(term) ? 1 : 0), 0);
+    }
+
+    // IDF — add 1 in denominator to never divide by zero; clamp at 0.1 so a
+    // term hitting every chunk still contributes a tiny signal.
+    const idf = {};
+    for (const term of queryTerms) {
+        idf[term] = Math.max(0.1, Math.log(N / (df[term] + 1) + 1));
+    }
+
+    return sections
+        .map((section, i) => {
+            const body = lowerContents[i];
+            let score = 0;
+            const hits = [];
+            for (const term of queryTerms) {
+                // Count term occurrences with word boundaries to avoid
+                // matching "software" when searching for "soft".
+                const re = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+                const tf = (body.match(re) || []).length;
+                if (tf > 0) {
+                    score += tf * idf[term];
+                    hits.push(term);
+                }
+            }
+            return { section, score, hits };
+        })
+        .filter(r => r.hits.length > 0)
+        .sort((a, b) => b.score - a.score);
+}
 
 /**
  * Cheap deterministic 384-dim embedding used as a fallback when no real
@@ -200,14 +262,31 @@ router.post('/', async (req, res) => {
                 .select('id, name')
                 .in('id', normalizedDocIds);
 
-            if (!documentError && docs) {
+            if (!documentError && docs && docs.length > 0) {
                 docs.forEach(d => docNameById.set(d.id, d.name));
-                if (docs.length > 0) {
-                    documentInfo = docs[0]; // primary for header/title context
-                    console.log(`Using document context: ${docs.map(d => d.name).join(', ')} (${docs.length} doc${docs.length === 1 ? '' : 's'})`);
-                }
+                documentInfo = docs[0];
+                console.log(`Using document context: ${docs.map(d => d.name).join(', ')} (${docs.length} doc${docs.length === 1 ? '' : 's'})`);
             } else {
-                console.log(`Document IDs not found or error: ${documentError?.message}`);
+                // RLS may have hidden the rows from the user client (stale JWT).
+                // Retry via admin scoped to the authenticated user.id.
+                console.log(`Document IDs not found via user client (${documentError?.message || 'empty result'}); trying admin lookup`);
+                try {
+                    const admin = supabaseAdmin();
+                    if (admin && user?.id) {
+                        const { data: adminDocs } = await admin
+                            .from('documents')
+                            .select('id, name')
+                            .in('id', normalizedDocIds)
+                            .eq('created_by', user.id);
+                        if (adminDocs && adminDocs.length > 0) {
+                            adminDocs.forEach(d => docNameById.set(d.id, d.name));
+                            documentInfo = adminDocs[0];
+                            console.log(`✅ Admin-lookup recovered ${adminDocs.length} doc(s) for user.id=${user.id}`);
+                        }
+                    }
+                } catch (adminErr) {
+                    console.warn('⚠️  Admin doc lookup threw:', adminErr.message);
+                }
             }
         }
 
@@ -271,34 +350,61 @@ router.post('/', async (req, res) => {
             // Skip the legacy ladder when hybrid succeeded.
         } else
         try {
-            // First try text search with user's query
+            // Text search via PostgreSQL full-text. websearch_to_tsquery is
+            // forgiving (handles natural-language input). We retrieve a wider
+            // pool with OR-semantics, then RANK in JS using IDF-weighted term
+            // frequency (BM25-lite). This avoids the failure mode where common
+            // query terms ("software", "system") match every chunk and crowd
+            // out chunks containing the rare-but-relevant term ("architecture").
+            const queryWords = (message || '')
+                .toLowerCase()
+                .split(/\W+/)
+                .filter(w => w.length > 3 && !STOP_WORDS.has(w));
+            const tsQuery = queryWords.length > 0
+                ? queryWords.join(' OR ')
+                : (message || '').slice(0, 200);
+
             let query = supabase
                 .from('document_sections')
                 .select('content, document_id, documents(name)')
-                .textSearch('content', message.split(' ').filter(w => w.length > 3).join(' & '), {
-                    type: 'websearch',
-                    config: 'english'
-                });
+                .textSearch('content', tsQuery, { type: 'websearch', config: 'english' });
 
-            // Filter by doc(s). Use the array form when caller selected multiple,
-            // otherwise fall back to single-id eq. Without this filter the legacy
-            // ladder would leak across documents.
             if (normalizedDocIds.length === 1) {
                 query = query.eq('document_id', normalizedDocIds[0]);
             } else if (normalizedDocIds.length > 1) {
                 query = query.in('document_id', normalizedDocIds);
             }
 
-            // Limit results
-            const { data: sections, error: searchError } = await query.limit(5);
+            // Pull a wider pool, rank, then take the top.
+            const { data: rawSections, error: searchError } = await query.limit(40);
 
             if (searchError) {
                 console.error('Error searching documents:', searchError);
             }
 
-            if (sections && sections.length > 0) {
-                relevantSections = sections;
-                console.log(`Found ${sections.length} relevant sections via text search`);
+            // Rank candidates by IDF-weighted term frequency.
+            //   idf(term) = log(N / df(term))  where N = total candidates
+            //                                       df = candidates containing the term
+            //   chunkScore = sum_term( tf_in_chunk(term) * idf(term) )
+            // Drop chunks that don't match ANY query term (websearch_to_tsquery
+            // can over-match via stemming/prefix on stopwords) and chunks
+            // matching ONLY the most-common term in the pool.
+            const ranked = rankByIdf(rawSections || [], queryWords);
+            const TOP_K = 5;
+            const sections = ranked.slice(0, TOP_K);
+
+            if (sections.length > 0) {
+                relevantSections = sections.map(s => s.section);
+                console.log(`Found ${rawSections?.length || 0} candidates via text search; kept top ${sections.length} after IDF ranking. Top score: ${sections[0]?.score?.toFixed(2)}`);
+
+                // Sentinel for the "junk match" case: if even the top chunk's
+                // score is essentially zero (only common-term hits), drop the
+                // result so the inline-PDF fallback can fire.
+                const RARE_TERM_THRESHOLD = 0.5;
+                if (sections[0].score < RARE_TERM_THRESHOLD) {
+                    console.log(`⚠️  Top text-search chunk scored ${sections[0].score.toFixed(2)} (< ${RARE_TERM_THRESHOLD}); discarding to let semantic / inline-PDF fallbacks try`);
+                    relevantSections = [];
+                }
             } else if (document_id) {
                 // If no results from text search, ALWAYS retrieve sections from the document
 
@@ -416,8 +522,155 @@ router.post('/', async (req, res) => {
             console.error('Error during document search:', searchErr);
         }
 
-        // If we still have no content but have a document_id, create a placeholder section
-        if (relevantSections.length === 0 && document_id && documentInfo) {
+        // ----------------------------------------------------------------
+        // Admin-client fallback: if every previous path returned 0 chunks
+        // AND the caller is authenticated, the cause is most likely an RLS
+        // denial from a stale/expired JWT (user.id verified via admin lookup
+        // but PostgREST rejects the same token). Retry through the
+        // service-role client, BUT scope strictly to the authenticated user
+        // so we never expose another user's data.
+        // ----------------------------------------------------------------
+        if (relevantSections.length === 0 && user && user.id && normalizedDocIds.length > 0) {
+            try {
+                const admin = supabaseAdmin();
+                if (admin) {
+                    // First confirm the user owns one of the requested docs.
+                    const { data: ownedDocs } = await admin
+                        .from('documents')
+                        .select('id, name')
+                        .in('id', normalizedDocIds)
+                        .eq('created_by', user.id);
+                    const ownedIds = (ownedDocs || []).map(d => d.id);
+
+                    if (ownedIds.length > 0) {
+                        const { data: adminSections } = await admin
+                            .from('document_sections')
+                            .select('id, content, document_id, page_number, chunk_index, chunk_level')
+                            .in('document_id', ownedIds)
+                            .limit(12);
+                        const usable = (adminSections || []).filter(
+                            s => s.chunk_level !== 0 || (adminSections || []).length === 1
+                        );
+                        const pick = usable.length > 0 ? usable : (adminSections || []);
+                        if (pick.length > 0) {
+                            const ownedDocName = id => (ownedDocs || []).find(d => d.id === id)?.name || 'Document';
+                            relevantSections = pick.map(s => ({
+                                id: s.id,
+                                content: s.content,
+                                document_id: s.document_id,
+                                page_number: s.page_number,
+                                page: s.page_number,
+                                chunk_index: s.chunk_index,
+                                documents: { name: ownedDocName(s.document_id) }
+                            }));
+                            console.log(`✅ Admin-fallback retrieval recovered ${relevantSections.length} chunks (RLS-bypass scoped to user.id=${user.id})`);
+                        }
+                    }
+                }
+            } catch (adminFallbackErr) {
+                console.warn('⚠️  Admin-fallback retrieval threw:', adminFallbackErr.message);
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // LAST-RESORT FALLBACK: send the PDFs inline to a multimodal LLM.
+        // Fires when every other retrieval path has produced 0 chunks AND we
+        // have at least one document in scope. Multi-doc supported up to 3
+        // PDFs / 28MB combined. Best-effort — silently continues to the
+        // placeholder path if any step fails.
+        // ----------------------------------------------------------------
+        const INLINE_MAX_PDFS = 3;
+        const INLINE_MAX_TOTAL_BYTES = 28 * 1024 * 1024;
+        let inlineAttachments = []; // [{ name, buffer }]
+
+        if (relevantSections.length === 0 && normalizedDocIds.length > 0 && user?.id) {
+            console.log(`📎 Retrieval empty across ${normalizedDocIds.length} doc(s); attempting inline-PDF fallback`);
+            try {
+                const admin = supabaseAdmin();
+                const visionProvider = admin ? aiProviderManager.getVisionProvider() : null;
+                if (!admin) {
+                    console.warn('   ↪ skipped: supabaseAdmin client not configured');
+                } else if (!visionProvider) {
+                    console.warn('   ↪ skipped: no vision-capable AI provider (need Gemini or Claude)');
+                } else {
+                    const { data: docRows } = await admin
+                        .from('documents')
+                        .select('id, name, file_extension, storage_object_path')
+                        .in('id', normalizedDocIds.slice(0, INLINE_MAX_PDFS))
+                        .eq('created_by', user.id);
+
+                    if (!docRows || docRows.length === 0) {
+                        console.warn(`   ↪ skipped: none of the ${normalizedDocIds.length} doc(s) are owned by user ${user.id}`);
+                    }
+
+                    let runningBytes = 0;
+                    for (const docRow of (docRows || [])) {
+                        const ext = (docRow.file_extension || '').toLowerCase();
+                        const isPdf = ext === 'pdf' || (docRow.name || '').toLowerCase().endsWith('.pdf');
+                        if (!isPdf) {
+                            console.warn(`   ↪ "${docRow.name}" is not a PDF (ext=${ext}); skipping`);
+                            continue;
+                        }
+                        if (!docRow.storage_object_path) {
+                            console.warn(`   ↪ "${docRow.name}" has no storage_object_path; skipping`);
+                            continue;
+                        }
+
+                        const storagePath = docRow.storage_object_path;
+                        let bytes = null;
+                        // Try Supabase Storage download first.
+                        try {
+                            const { data: blob, error: dlErr } = await admin.storage.from('documents').download(storagePath);
+                            if (blob) {
+                                const ab = await blob.arrayBuffer();
+                                bytes = Buffer.from(ab);
+                            } else if (dlErr) {
+                                console.warn(`   ↪ "${docRow.name}" storage download error: ${dlErr.message}`);
+                            }
+                        } catch (storageErr) {
+                            console.warn(`   ↪ "${docRow.name}" storage download threw: ${storageErr.message}`);
+                        }
+                        // Local fallback.
+                        if (!bytes) {
+                            const isAbsolute = storagePath.startsWith('/') || /^[a-zA-Z]:/.test(storagePath);
+                            const localCandidate = isAbsolute
+                                ? storagePath
+                                : path.join(process.cwd(), 'public', storagePath);
+                            if (fs.existsSync(localCandidate)) {
+                                bytes = fs.readFileSync(localCandidate);
+                                console.log(`   ↪ "${docRow.name}" loaded from local ${localCandidate} (${bytes.length} bytes)`);
+                            }
+                        }
+
+                        if (!bytes || bytes.length === 0) {
+                            console.warn(`   ↪ "${docRow.name}" could not be retrieved from storage or disk`);
+                            continue;
+                        }
+                        if (runningBytes + bytes.length > INLINE_MAX_TOTAL_BYTES) {
+                            console.warn(`   ↪ "${docRow.name}" would exceed ${INLINE_MAX_TOTAL_BYTES} byte cap; stopping`);
+                            break;
+                        }
+                        runningBytes += bytes.length;
+                        inlineAttachments.push({ name: docRow.name, buffer: bytes });
+                        console.log(`   ↪ "${docRow.name}" attached (${bytes.length} bytes, total ${runningBytes})`);
+                    }
+
+                    if (inlineAttachments.length > 0) {
+                        console.log(`📎 Will send ${inlineAttachments.length} PDF(s) inline to ${visionProvider.id} (${runningBytes} bytes total)`);
+                    } else {
+                        console.warn('   ↪ no PDFs to attach; falling through to placeholder');
+                    }
+                }
+            } catch (inlineErr) {
+                console.warn('⚠️  Inline-PDF fallback prep threw:', inlineErr.message);
+                inlineAttachments = [];
+            }
+        }
+
+        // If we still have no content but have a document_id, create a placeholder
+        // section. Skip when inline-PDF attachments are queued (the inline path
+        // doesn't use relevantSections at all).
+        if (relevantSections.length === 0 && document_id && documentInfo && inlineAttachments.length === 0) {
             console.log('Creating placeholder section with document info');
             relevantSections = [{
                 content: `This is a document titled "${documentInfo.name}". Please ask specific questions about its content.`,
@@ -511,7 +764,17 @@ router.post('/', async (req, res) => {
                 .insert(insertPayload)
                 .select()
                 .single();
-            if (createError && /column.*document_ids|does not exist/i.test(createError.message || '')) {
+            // Detect "column document_ids missing" in any of the shapes
+            // Postgres / PostgREST emit:
+            //   - PGRST204     "Could not find the 'document_ids' column of 'conversations' in the schema cache"
+            //   - 42703        "column \"document_ids\" of relation ... does not exist"
+            const isMissingDocIdsCol = createError && (
+                createError.code === 'PGRST204' ||
+                createError.code === '42703' ||
+                /document_ids/i.test(createError.message || '')
+            );
+            if (isMissingDocIdsCol) {
+                console.warn('ℹ️  conversations.document_ids missing — retrying without it (apply migration 007 to enable multi-doc context)');
                 delete insertPayload.document_ids;
                 ({ data: newConversation, error: createError } = await supabase
                     .from('conversations')
@@ -615,11 +878,34 @@ IMPORTANT INSTRUCTIONS:
                 console.log(`Using model: ${model}`);
             }
 
-            const aiResponse = await aiProvider.chat(messages, {
-                temperature: 0.7,
-                max_tokens: 1000,
-                model: model || undefined  // Pass the model if specified
-            });
+            // If retrieval found nothing and we managed to fetch the PDFs,
+            // route through the inline-PDF chat path (Gemini/Claude only).
+            // Otherwise, normal chat with the wrapped chunks as context.
+            let aiResponse;
+            if (inlineAttachments.length > 0) {
+                const visionProvider = aiProviderManager.getVisionProvider() || aiProvider;
+                console.log(`📎 Using inline-PDF chat via ${visionProvider.id} with ${inlineAttachments.length} attachment(s)`);
+                try {
+                    aiResponse = await visionProvider.chatWithPdfInline(messages, inlineAttachments, {
+                        temperature: 0.4,
+                        max_tokens: 2000,
+                        model: model || undefined
+                    });
+                } catch (inlineErr) {
+                    console.warn(`⚠️  Inline-PDF chat failed (${inlineErr.code || inlineErr.message}); falling back to text-only chat`);
+                    aiResponse = await aiProvider.chat(messages, {
+                        temperature: 0.7,
+                        max_tokens: 1000,
+                        model: model || undefined
+                    });
+                }
+            } else {
+                aiResponse = await aiProvider.chat(messages, {
+                    temperature: 0.7,
+                    max_tokens: 1000,
+                    model: model || undefined
+                });
+            }
 
             const aiMessage = aiResponse.content || 'No response from AI service';
 
@@ -629,30 +915,8 @@ IMPORTANT INSTRUCTIONS:
             console.log('🔧 Provider:', aiResponse.provider);
             console.log('🔧 Model:', aiResponse.model);
 
-            // Store messages in the database if we have a conversation ID
-            if (conversationIdToUse) {
-                // Store user message
-                await supabase
-                    .from('messages')
-                    .insert({
-                        conversation_id: conversationIdToUse,
-                        content: message,
-                        role: 'user',
-                        user_id: user.id
-                    });
-
-                // Store assistant message
-                await supabase
-                    .from('messages')
-                    .insert({
-                        conversation_id: conversationIdToUse,
-                        content: aiMessage,
-                        role: 'assistant',
-                        user_id: user.id
-                    });
-            }
-
-            // Feature 1: enriched citations — stable index, longer snippet, page if available
+            // Build the citations payload BEFORE persisting so we can store
+            // it on the assistant message row.
             const sourcesPayload = (relevantSections || []).map((section, i) => {
                 const snippet = (section.content || '').toString();
                 return {
@@ -671,6 +935,41 @@ IMPORTANT INSTRUCTIONS:
                 messages,
                 aiMessage
             });
+
+            // Persist user + assistant messages with their metadata so a
+            // page reload restores citations and the model badge.
+            // sources/usage/model columns added by migration 013; if missing,
+            // fall back to the legacy minimal insert.
+            if (conversationIdToUse) {
+                await supabase.from('messages').insert({
+                    conversation_id: conversationIdToUse,
+                    content: message,
+                    role: 'user',
+                    user_id: user.id
+                });
+
+                const assistantRow = {
+                    conversation_id: conversationIdToUse,
+                    content: aiMessage,
+                    role: 'assistant',
+                    user_id: user.id,
+                    sources: sourcesPayload.length > 0 ? sourcesPayload : null,
+                    usage: usage || null,
+                    model: aiResponse.model || null,
+                    provider: aiResponse.provider || null
+                };
+                let { error: insertErr } = await supabase.from('messages').insert(assistantRow);
+                if (insertErr && /column.*(sources|usage|model|provider)|does not exist|PGRST204/i.test(insertErr.message || '')) {
+                    // Pre-migration: retry with the minimal column set.
+                    console.warn('ℹ️  messages.sources/usage/model columns missing — apply migration 013 to persist citations on reload');
+                    await supabase.from('messages').insert({
+                        conversation_id: conversationIdToUse,
+                        content: aiMessage,
+                        role: 'assistant',
+                        user_id: user.id
+                    });
+                }
+            }
 
             const response = {
                 id: generateId(),

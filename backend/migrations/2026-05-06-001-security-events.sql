@@ -2,8 +2,12 @@
 -- Logs prompt-injection patterns detected in retrieved RAG chunks.
 -- Additive: creates a new table; touches no existing data.
 
+-- gen_random_uuid() is built into Postgres 13+ core. On older Postgres it
+-- lives in pgcrypto; enabling the extension is a no-op when already present.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS security_events (
-    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id       UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     document_id   UUID REFERENCES documents(id) ON DELETE CASCADE,
     section_id    UUID,

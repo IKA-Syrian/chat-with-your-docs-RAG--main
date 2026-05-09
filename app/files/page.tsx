@@ -79,11 +79,19 @@ export default function FilesPage() {
     },
   });
 
-  // Phase 3 #15: import a URL (web page or YouTube transcript)
+  // Phase 3 #15: import a URL (web page or YouTube transcript).
+  // Normalize before send — strip whitespace and surrounding quotes (common
+  // when users copy-paste from chat apps), and prepend https:// if missing,
+  // so the backend doesn't reject "youtube.com/watch?v=..." outright.
   const handleImportUrl = async (event: React.FormEvent) => {
     event.preventDefault();
-    const url = importUrl.trim();
+    let url = (importUrl || '')
+      .replace(/^["'<\s]+|["'>\s]+$/g, '')
+      .replace(/\s+/g, '');
     if (!url || importing) return;
+    if (!/^https?:\/\//i.test(url)) {
+      url = 'https://' + url;
+    }
     setImporting(true);
     try {
       const response = await apiClient.ingestFromUrl(url);
@@ -283,8 +291,11 @@ export default function FilesPage() {
             <CardContent>
               <form onSubmit={handleImportUrl} className="flex flex-col sm:flex-row gap-2">
                 <Input
-                  type="url"
-                  placeholder="https://… or https://youtube.com/watch?v=…"
+                  type="text"
+                  inputMode="url"
+                  autoComplete="url"
+                  spellCheck={false}
+                  placeholder="https://… or youtube.com/watch?v=…"
                   value={importUrl}
                   onChange={(e) => setImportUrl(e.target.value)}
                   disabled={importing}

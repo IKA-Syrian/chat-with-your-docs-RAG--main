@@ -89,10 +89,59 @@ class ApiClient {
     return this.token;
   }
 
+  /**
+   * Decode the `exp` claim from a JWT without verifying signature.
+   * Returns the expiry as a Date, or null on parse failure.
+   */
+  private decodeJwtExp(token: string): Date | null {
+    try {
+      const payload = token.split('.')[1];
+      if (!payload) return null;
+      const padded = payload.replace(/-/g, '+').replace(/_/g, '/');
+      const json = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
+      const obj = JSON.parse(json);
+      return typeof obj?.exp === 'number' ? new Date(obj.exp * 1000) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * If the locally-stored token is past its `exp`, clear all auth state and
+   * bounce to /login. Returns true if we forced a redirect, so callers can
+   * abort. Auth endpoints (/auth/sign-in, /auth/sign-up) skip this check
+   * since they're how the user gets a fresh token.
+   */
+  private guardAgainstExpiredToken(endpoint: string): boolean {
+    if (typeof window === 'undefined') return false;
+    if (endpoint.startsWith('/auth/sign-in') || endpoint.startsWith('/auth/sign-up')) return false;
+    const token = this.token;
+    if (!token) return false;
+    const exp = this.decodeJwtExp(token);
+    if (!exp) return false;
+    if (exp.getTime() > Date.now() + 5_000) return false; // still valid (5s skew)
+
+    console.warn('🔑 Local JWT is expired; clearing auth state and redirecting to /login');
+    this.clearAuth();
+    try {
+      Object.keys(localStorage).filter(k => k.startsWith('sb-')).forEach(k => localStorage.removeItem(k));
+    } catch { /* ignore */ }
+
+    if (window.location.pathname !== '/login') {
+      const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = `/login?redirect=${redirect}&reason=expired`;
+    }
+    return true;
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
+    if (this.guardAgainstExpiredToken(endpoint)) {
+      throw new Error('SESSION_EXPIRED');
+    }
+
     const url = `${this.baseUrl}${endpoint}`;
       const headers: Record<string, string> = {
       'Content-Type': 'application/json',

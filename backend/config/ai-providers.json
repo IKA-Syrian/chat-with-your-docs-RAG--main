@@ -4,7 +4,7 @@
         "gemini": {
             "name": "Google Gemini",
             "enabled": true,
-            "apiKey": "",
+            "apiKey": "AIzaSyDvfTQMkrh_lTAtY3jZ365itBZsjZa_oII",
             "models": {
                 "chat": {
                     "primary": "gemini-2.5-flash",
@@ -17,8 +17,8 @@
                     ]
                 },
                 "embedding": {
-                    "primary": "models/embedding-001",
-                    "alternatives": ["models/text-embedding-004"]
+                    "primary": "models/gemini-embedding-2",
+                    "alternatives": ["models/gemini-embedding-2"]
                 }
             },
             "endpoints": {

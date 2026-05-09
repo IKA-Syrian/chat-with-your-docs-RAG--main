@@ -233,16 +233,28 @@ app.use('*', (req, res) => {
     res.status(404).json({ error: 'Route not found' });
 });
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`🚀 Enhanced RAG Backend server running on port ${PORT}`);
-    console.log(`📍 Health check: http://localhost:${PORT}/health`);
-    console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
-    console.log(`📄 API Spec (JSON): http://localhost:${PORT}/api-docs.json`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🌍 CORS Origins: ${process.env.CORS_ORIGINS || 'default localhost ports'}`);
-    console.log(`🎓 Features: RAG Chat, Document Processing, Analytics, Quiz Generation, Flashcards`);
-    console.log(`🤖 AI Services: OpenAI, Google AI, OpenRouter`);
-});
+import { runAutoMigrations } from './lib/auto-migrate.js';
+
+// Run pending migrations BEFORE the server starts accepting requests.
+// Without DATABASE_URL set, this is a no-op that prints a manual-apply
+// banner and continues — never blocks startup.
+(async () => {
+    try {
+        await runAutoMigrations();
+    } catch (err) {
+        console.error('🗂️  Auto-migrate threw unexpectedly (continuing anyway):', err.message);
+    }
+
+    app.listen(PORT, () => {
+        console.log(`🚀 Enhanced RAG Backend server running on port ${PORT}`);
+        console.log(`📍 Health check: http://localhost:${PORT}/health`);
+        console.log(`📚 API Documentation: http://localhost:${PORT}/api-docs`);
+        console.log(`📄 API Spec (JSON): http://localhost:${PORT}/api-docs.json`);
+        console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+        console.log(`🌍 CORS Origins: ${process.env.CORS_ORIGINS || 'default localhost ports'}`);
+        console.log(`🎓 Features: RAG Chat, Document Processing, Analytics, Quiz Generation, Flashcards`);
+        console.log(`🤖 AI Services: OpenAI, Google AI, OpenRouter`);
+    });
+})();
 
 export default app;

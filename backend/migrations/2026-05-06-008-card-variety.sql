@@ -2,6 +2,8 @@
 -- Phase 3 #7: cloze deletion + short-answer flashcards.
 -- Reuses the existing flashcards table (from migration 004) with a discriminator.
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- for gen_random_uuid()
+
 ALTER TABLE flashcards
     ADD COLUMN IF NOT EXISTS card_type TEXT NOT NULL DEFAULT 'basic';   -- 'basic' | 'cloze' | 'short_answer'
 
@@ -16,7 +18,7 @@ CREATE INDEX IF NOT EXISTS idx_flashcards_card_type
 
 -- Per-attempt log for short-answer grading. Feeds the mistake journal too.
 CREATE TABLE IF NOT EXISTS short_answer_attempts (
-    id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id           UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     flashcard_id      UUID NOT NULL REFERENCES flashcards(id) ON DELETE CASCADE,
     user_answer       TEXT NOT NULL,
