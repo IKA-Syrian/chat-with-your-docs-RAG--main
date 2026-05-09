@@ -203,7 +203,6 @@ app.use('/api/embed', generalLimiter, embedRoutes);
 app.use('/api/process', generalLimiter, processRoutes);
 app.use('/api/test', generalLimiter, testRoutes);
 
-// Enhanced API routes
 app.use('/api/analytics', generalLimiter, analyticsRoutes);
 app.use('/api/enhanced-processing', generalLimiter, enhancedProcessingRoutes);
 app.use('/api/flashcards', generalLimiter, flashcardsRoutes);

@@ -27,39 +27,33 @@ StudyAI is a web-based adaptive learning platform designed to help students mast
 
 ### Installation
 
-1. Clone the repository:
-   bash
-   git clone https://github.com/your-org/studyai.git
-   cd studyai
-   
-
-2. Install dependencies:
+1. Install dependencies:
    bash
    npm install
    # or
    yarn install
    
 
-3. Create a .env.local file and set your environment variables:
+2. Create a .env.local file and set your environment variables:
    env
    NEXT_PUBLIC_SUPABASE_URL=<your-supabase-url>
    NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-supabase-anon-key>
    OPENAI_API_KEY=<your-openai-api-key>
    
 
-4. Start the Supabase stack (if running locally):
+3. Start the Supabase stack (if running locally):
    bash
    npx supabase start
    
 
-5. Run the development server:
+4. Run the development server:
    bash
    npm run dev
    # or
    yarn dev
    
 
-6. Open [http://localhost:3000](http://localhost:3000) in your browser.
+5. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
